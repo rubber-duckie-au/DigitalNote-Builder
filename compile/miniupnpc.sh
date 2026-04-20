@@ -2,13 +2,13 @@
 
 cd temp
 
-tar xvfz ../../../download/miniupnpc-2.2.4.tar.gz
+tar xvfz ../../../download/miniupnpc-2.2.8.tar.gz
 
-cd miniupnpc-2.2.4
+cd miniupnpc-2.2.8
 
 make -f Makefile.mingw libminiupnpc.a $2
 
-INSTALLPREFIX=$PWD/../../libs/miniupnpc-2.2.4
+INSTALLPREFIX=$PWD/../../libs/miniupnpc-2.2.8
 
 mkdir -p $INSTALLPREFIX/include/miniupnpc
 mkdir -p $INSTALLPREFIX/lib
