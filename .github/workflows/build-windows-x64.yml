@@ -143,7 +143,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\DigitalNote-Builder\windows\x64\libs\qt-5.15.7
-          key: qt-5.15.7-static-mingw64-${{ hashFiles('C:/build/DigitalNote-Builder/compile/qt.sh') }}
+          key: qt-5.15.7-static-mingw64-v1
 
       - name: Download pre-built Qt 5.15.7 from GitHub Release
         if: steps.cache-qt.outputs.cache-hit != 'true'
@@ -237,18 +237,7 @@ jobs:
             C:\build\DigitalNote-Builder\windows\x64\libs\miniupnpc-2.2.8
             C:\build\DigitalNote-Builder\windows\x64\libs\qrencode-4.1.1
             C:\build\DigitalNote-Builder\windows\x64\libs\mnemonic
-          key: libs-mingw64-v1-${{ hashFiles(
-            'C:/build/DigitalNote-Builder/windows/x64/compile_libs.sh',
-            'C:/build/DigitalNote-Builder/compile/berkeleydb.sh',
-            'C:/build/DigitalNote-Builder/compile/boost.sh',
-            'C:/build/DigitalNote-Builder/compile/gmp.sh',
-            'C:/build/DigitalNote-Builder/compile/libevent.sh',
-            'C:/build/DigitalNote-Builder/compile/miniupnpc.sh',
-            'C:/build/DigitalNote-Builder/compile/openssl.sh',
-            'C:/build/DigitalNote-Builder/compile/qrencode.sh',
-            'C:/build/DigitalNote-Builder/compile/secp256k1.sh',
-            'C:/build/DigitalNote-Builder/compile/mnemonic.sh'
-          ) }}
+          key: libs-mingw64-v1
 
       - name: Build support libraries
         if: steps.cache-libs.outputs.cache-hit != 'true'
