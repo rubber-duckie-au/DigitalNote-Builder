@@ -71,11 +71,7 @@ jobs:
       # ── 1. Checkout ───────────────────────────────────────────────────────────
       - name: Checkout DigitalNote-Builder
         uses: actions/checkout@v4
-        with:
-          repository: rubber-duckie-au/DigitalNote-Builder
-          token: ${{ secrets.PAT_TOKEN }}
-          # Checked out at: D:\a\...\DigitalNote-Builder
-          # We move it into C:\build next step
+        # Self-checkout — no repository/token needed, GITHUB_TOKEN is used automatically
 
       - name: Checkout DigitalNote-2
         uses: actions/checkout@v4
@@ -97,19 +93,24 @@ jobs:
       - name: Set up C:\build directory layout
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path C:\build\DigitalNote-Builder
+          # Create all required directories first
           New-Item -ItemType Directory -Force -Path C:\build\download
           New-Item -ItemType Directory -Force -Path C:\build\artifacts
 
-          # Copy builder repo into C:\build\DigitalNote-Builder
-          Copy-Item -Recurse -Force .\* C:\build\DigitalNote-Builder\
+          # Copy builder repo contents (not the folder itself) into C:\build\DigitalNote-Builder
+          # Note: Copy-Item destination must exist before copying into it
+          New-Item -ItemType Directory -Force -Path C:\build\DigitalNote-Builder
+          Get-ChildItem -Path .\  | Copy-Item -Destination C:\build\DigitalNote-Builder\ `
+              -Recurse -Force -Exclude 'DigitalNote-2-src'
 
           # Place DigitalNote-2 inside windows\x64\ as scripts expect
-          Copy-Item -Recurse -Force .\DigitalNote-2-src\* `
-              C:\build\DigitalNote-Builder\windows\x64\DigitalNote-2\
+          New-Item -ItemType Directory -Force `
+              -Path C:\build\DigitalNote-Builder\windows\x64\DigitalNote-2
+          Get-ChildItem -Path .\DigitalNote-2-src\ | Copy-Item `
+              -Destination C:\build\DigitalNote-Builder\windows\x64\DigitalNote-2\ `
+              -Recurse -Force
 
-          # Create temp and libs dirs that compile_libs.sh creates via mkdir
-          # (mkdir fails if they exist in some shells, pre-create them)
+          # Pre-create dirs that compile scripts expect
           New-Item -ItemType Directory -Force `
               -Path C:\build\DigitalNote-Builder\windows\x64\temp
           New-Item -ItemType Directory -Force `
