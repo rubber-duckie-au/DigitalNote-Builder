@@ -1,0 +1,503 @@
+# DigitalNote-2 Windows x64 CI
+# Builds both the Qt wallet (app) and daemon on every push and pull request.
+#
+# HOW TO PUBLISH THE PRE-BUILT Qt ARTIFACT (do this once locally)
+# ---------------------------------------------------------------
+# 1. Build Qt locally as normal:
+#      cd DigitalNote-Builder/windows/x64
+#      ../../compile/qt.sh "-platform win32-g++" "-j 4"
+#
+# 2. Archive from your MSYS2 shell:
+#      cd DigitalNote-Builder/windows/x64
+#      tar -czf qt-5.15.7-static-mingw64.tar.gz libs/qt-5.15.7/
+#
+# 3. GitHub: DigitalNote-Builder repo -> Releases -> Draft a new release
+#      Tag:    qt-static-5.15.7-mingw64
+#      Title:  Qt 5.15.7 static MinGW64
+#      Upload: qt-5.15.7-static-mingw64.tar.gz
+#      Publish the release
+#
+# 4. Paste the direct asset URL into QT_RELEASE_URL below.
+#
+# The Actions cache wraps the download so Qt is only fetched from Releases
+# on the very first run (or whenever compile/qt.sh changes).
+# ---------------------------------------------------------------
+#
+# Script argument mapping (from reading the actual compile/*.sh files):
+#   berkeleydb.sh  $1=build_dir  $2=configure_flags  $3=make_jobs
+#   boost.sh       $1=combined "toolset=gcc address-model=64 -j N" string
+#   gmp.sh         no args needed  (uses pacman package)
+#   leveldb.sh     $1=make_jobs
+#   libevent.sh    $1=configure_extra  $2=make_jobs
+#   miniupnpc.sh   $1=libname  $2=make_jobs
+#   openssl.sh     $1=platform(mingw64)  $2=make_jobs
+#   qrencode.sh    $1=configure_extra  $2=make_jobs
+#   secp256k1.sh   $1=configure_extra  $2=make_jobs
+#   qt.sh          $1=platform  $2=make_jobs
+#   mnemonic.sh    $1=unused  $2=make_jobs  (uses mingw32-make internally)
+#
+# Download path: scripts look for ../../../download/ relative to temp/
+#   i.e. windows/x64/temp/../../../download = C:\build\download
+#   The symlink step below creates this mapping.
+#
+# qrencode: downloaded as v4.1.1.tar.gz (script expects that exact filename)
+# leveldb + secp256k1: bundled in DigitalNote-2 repo, no download needed
+# BIP39-Mnemonic: git submodule in DigitalNote-2, no download needed
+
+name: Build Windows x64
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+env:
+  QT_RELEASE_URL: https://github.com/rubber-duckie-au/DigitalNote-Builder/releases/download/qt-static-5.15.7-mingw64/qt-5.15.7-static-mingw64.tar.gz
+
+jobs:
+  build:
+    name: Windows x64 (MSYS2 MinGW64)
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+
+      # ── 1. Checkout ───────────────────────────────────────────────────────────
+      - name: Checkout DigitalNote-Builder
+        uses: actions/checkout@v4
+        with:
+          repository: rubber-duckie-au/DigitalNote-Builder
+          token: ${{ secrets.PAT_TOKEN }}
+          # Checked out at: D:\a\...\DigitalNote-Builder
+          # We move it into C:\build next step
+
+      - name: Checkout DigitalNote-2
+        uses: actions/checkout@v4
+        with:
+          repository: rubber-duckie-au/DigitalNote-2
+          path: DigitalNote-2-src
+          submodules: recursive
+          token: ${{ secrets.PAT_TOKEN }}
+
+      # ── 2. Build directory layout ─────────────────────────────────────────────
+      # The compile scripts use relative paths that assume:
+      #   CWD during libs build  = windows/x64/
+      #   CWD during app build   = windows/x64/
+      #   DigitalNote-2 repo     = windows/x64/DigitalNote-2/
+      #   download archives      = ../../../download/  (= C:\build\download\)
+      #   patch files            = ../../../../patch/  (= C:\build\patch\)
+      #   libs output            = windows/x64/libs/
+      #   temp build dir         = windows/x64/temp/
+      - name: Set up C:\build directory layout
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\build\DigitalNote-Builder
+          New-Item -ItemType Directory -Force -Path C:\build\download
+          New-Item -ItemType Directory -Force -Path C:\build\artifacts
+
+          # Copy builder repo into C:\build\DigitalNote-Builder
+          Copy-Item -Recurse -Force .\* C:\build\DigitalNote-Builder\
+
+          # Place DigitalNote-2 inside windows\x64\ as scripts expect
+          Copy-Item -Recurse -Force .\DigitalNote-2-src\* `
+              C:\build\DigitalNote-Builder\windows\x64\DigitalNote-2\
+
+          # Create temp and libs dirs that compile_libs.sh creates via mkdir
+          # (mkdir fails if they exist in some shells, pre-create them)
+          New-Item -ItemType Directory -Force `
+              -Path C:\build\DigitalNote-Builder\windows\x64\temp
+          New-Item -ItemType Directory -Force `
+              -Path C:\build\DigitalNote-Builder\windows\x64\libs
+
+      # ── 3. MSYS2 environment ──────────────────────────────────────────────────
+      # Packages match windows/x64/update.sh plus cmake/mingw32-make
+      # needed by mnemonic.sh (cmake + mingw32-make are not in update.sh
+      # but are required at build time)
+      - name: Setup MSYS2 MinGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            git
+            perl
+            bzip2
+            libtool
+            make
+            autoconf
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pcre2
+            mingw-w64-x86_64-gmp
+            mingw-w64-x86_64-cmake
+
+      # ── 4. Qt — cache then download from GitHub Release ───────────────────────
+      - name: Cache Qt 5.15.7 static build
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: C:\build\DigitalNote-Builder\windows\x64\libs\qt-5.15.7
+          key: qt-5.15.7-static-mingw64-${{ hashFiles('C:/build/DigitalNote-Builder/compile/qt.sh') }}
+
+      - name: Download pre-built Qt 5.15.7 from GitHub Release
+        if: steps.cache-qt.outputs.cache-hit != 'true'
+        run: |
+          echo "Downloading pre-built Qt 5.15.7..."
+          curl -L -o /tmp/qt-prebuilt.tar.gz "$QT_RELEASE_URL"
+          echo "Extracting into libs/..."
+          tar -xzf /tmp/qt-prebuilt.tar.gz \
+              -C /c/build/DigitalNote-Builder/windows/x64/
+          rm /tmp/qt-prebuilt.tar.gz
+          echo "Qt ready:"
+          ls /c/build/DigitalNote-Builder/windows/x64/libs/qt-5.15.7/bin/
+
+      # ── 5. Source archive downloads ───────────────────────────────────────────
+      # Scripts look for archives at ../../../download/ relative to temp/
+      # which resolves to C:\build\download\
+      # We create a symlink: C:\build\DigitalNote-Builder\download -> C:\build\download
+      # so the path ../../../download from windows/x64/temp/ works correctly.
+      #
+      # Archive filenames must match exactly what each script expects:
+      #   berkeleydb: db-6.2.32.NC.tar.gz
+      #   boost:      boost_1_80_0.tar.gz
+      #   openssl:    openssl-1.1.1w.tar.gz
+      #   libevent:   libevent-2.1.12-stable.tar.gz
+      #   miniupnpc:  miniupnpc-2.2.8.tar.gz
+      #   qrencode:   v4.1.1.tar.gz   <-- must be this exact name (script: tar xvfz .../v4.1.1.tar.gz)
+      #   leveldb:    bundled in DigitalNote-2/src/leveldb/ — no download
+      #   secp256k1:  bundled in DigitalNote-2/src/secp256k1/ — no download
+      #   mnemonic:   git submodule in DigitalNote-2/src/bip39/ — no download
+
+      - name: Create download symlink
+        run: |
+          # From windows/x64/temp/, scripts do ../../../download
+          # = windows/x64/temp/ -> windows/x64/ -> windows/ -> Builder root
+          # So Builder root needs a download/ dir
+          ln -sf /c/build/download \
+              /c/build/DigitalNote-Builder/download
+
+      - name: Cache source archives
+        id: cache-downloads
+        uses: actions/cache@v4
+        with:
+          path: C:\build\download
+          key: source-archives-v1
+
+      - name: Download source archives
+        if: steps.cache-downloads.outputs.cache-hit != 'true'
+        run: |
+          cd /c/build/download
+
+          echo "=== Boost 1.80.0 ==="
+          wget -q \
+            https://archives.boost.io/release/1.80.0/source/boost_1_80_0.tar.gz
+
+          echo "=== OpenSSL 1.1.1w ==="
+          wget -q \
+            https://github.com/openssl/openssl/releases/download/OpenSSL_1_1_1w/openssl-1.1.1w.tar.gz
+
+          echo "=== BerkeleyDB 6.2.32.NC ==="
+          wget -q \
+            http://download.oracle.com/berkeley-db/db-6.2.32.NC.tar.gz
+
+          echo "=== libevent 2.1.12-stable ==="
+          wget -q \
+            https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz
+
+          echo "=== miniupnpc 2.2.8 ==="
+          wget -q \
+            "http://miniupnp.free.fr/files/download.php?file=miniupnpc-2.2.8.tar.gz" \
+            -O miniupnpc-2.2.8.tar.gz
+
+          # qrencode: script does: tar xvfz ../../../download/v4.1.1.tar.gz
+          # so the filename MUST be v4.1.1.tar.gz exactly
+          echo "=== qrencode 4.1.1 ==="
+          wget -q \
+            https://github.com/fukuchi/libqrencode/archive/refs/tags/v4.1.1.tar.gz
+
+          echo "=== Downloads complete ==="
+          ls -lh /c/build/download/
+
+      # ── 6. Compiled libraries — cached by hash of all compile/*.sh ────────────
+      - name: Cache compiled libraries
+        id: cache-libs
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\build\DigitalNote-Builder\windows\x64\libs\db-6.2.32.NC
+            C:\build\DigitalNote-Builder\windows\x64\libs\boost_1_80_0
+            C:\build\DigitalNote-Builder\windows\x64\libs\openssl-1.1.1w
+            C:\build\DigitalNote-Builder\windows\x64\libs\libevent-2.1.12-stable
+            C:\build\DigitalNote-Builder\windows\x64\libs\miniupnpc-2.2.8
+            C:\build\DigitalNote-Builder\windows\x64\libs\qrencode-4.1.1
+            C:\build\DigitalNote-Builder\windows\x64\libs\mnemonic
+          key: libs-mingw64-v1-${{ hashFiles(
+            'C:/build/DigitalNote-Builder/windows/x64/compile_libs.sh',
+            'C:/build/DigitalNote-Builder/compile/berkeleydb.sh',
+            'C:/build/DigitalNote-Builder/compile/boost.sh',
+            'C:/build/DigitalNote-Builder/compile/gmp.sh',
+            'C:/build/DigitalNote-Builder/compile/libevent.sh',
+            'C:/build/DigitalNote-Builder/compile/miniupnpc.sh',
+            'C:/build/DigitalNote-Builder/compile/openssl.sh',
+            'C:/build/DigitalNote-Builder/compile/qrencode.sh',
+            'C:/build/DigitalNote-Builder/compile/secp256k1.sh',
+            'C:/build/DigitalNote-Builder/compile/mnemonic.sh'
+          ) }}
+
+      - name: Build support libraries
+        if: steps.cache-libs.outputs.cache-hit != 'true'
+        working-directory: /c/build/DigitalNote-Builder/windows/x64
+        run: |
+          export TARGET_OS=NATIVE_WINDOWS
+          JOBS=$(nproc)
+
+          # ── BerkeleyDB 6.2.32.NC ──────────────────────────────────────────────
+          # Args: $1=build_dir  $2=configure_flags  $3=make_jobs
+          echo "=== BerkeleyDB ==="
+          ../../compile/berkeleydb.sh "build_windows" "--enable-mingw" "-j $JOBS"
+
+          # ── Boost 1.80.0 ──────────────────────────────────────────────────────
+          # Args: $1=combined string "toolset=gcc address-model=64 -j N"
+          # Note: compile_libs.sh passes $1 inline: boost.sh "toolset=gcc address-model=64 $1"
+          # In CI we replicate that inline expansion
+          echo "=== Boost ==="
+          ../../compile/boost.sh "toolset=gcc address-model=64 -j $JOBS"
+
+          # ── GMP ───────────────────────────────────────────────────────────────
+          # Just verifies the pacman package is installed, no args needed
+          echo "=== GMP ==="
+          ../../compile/gmp.sh
+
+          # ── LevelDB ───────────────────────────────────────────────────────────
+          # Bundled in DigitalNote-2/src/leveldb/ — built from there
+          # Args: $1=make_jobs
+          echo "=== LevelDB ==="
+          ../../compile/leveldb.sh "-j $JOBS"
+
+          # ── libevent 2.1.12 ───────────────────────────────────────────────────
+          # Args: $1=configure_extra  $2=make_jobs
+          echo "=== libevent ==="
+          ../../compile/libevent.sh "" "-j $JOBS"
+
+          # ── miniupnpc 2.2.8 ───────────────────────────────────────────────────
+          # Uses Makefile.mingw directly (not autoconf)
+          # Args: $1=libname  $2=make_jobs
+          echo "=== miniupnpc ==="
+          ../../compile/miniupnpc.sh "libminiupnpc.a" "-j $JOBS"
+
+          # ── OpenSSL 1.1.1w ────────────────────────────────────────────────────
+          # Args: $1=platform(mingw64)  $2=make_jobs
+          echo "=== OpenSSL ==="
+          ../../compile/openssl.sh "mingw64" "-j $JOBS"
+
+          # ── qrencode 4.1.1 ────────────────────────────────────────────────────
+          # Args: $1=configure_extra  $2=make_jobs
+          # Note: archive must be named v4.1.1.tar.gz (matches script expectation)
+          echo "=== qrencode ==="
+          ../../compile/qrencode.sh "" "-j $JOBS"
+
+          # ── secp256k1 ─────────────────────────────────────────────────────────
+          # Bundled in DigitalNote-2/src/secp256k1/
+          # Args: $1=configure_extra  $2=make_jobs
+          echo "=== secp256k1 ==="
+          ../../compile/secp256k1.sh "" "-j $JOBS"
+
+          # ── BIP39-Mnemonic ────────────────────────────────────────────────────
+          # Git submodule in DigitalNote-2/src/bip39/
+          # Uses cmake + mingw32-make internally
+          # Args: $1=unused  $2=make_jobs
+          echo "=== BIP39-Mnemonic ==="
+          ../../compile/mnemonic.sh "" "-j $JOBS"
+
+          echo "=== All libraries built ==="
+
+      # Note: Qt is NOT built here — it comes from the GitHub Release artifact
+      # cached in step 4. compile_libs.sh calls qt.sh last but we skip that
+      # in CI since Qt is pre-built and cached separately.
+
+      # ── 7. Build Qt wallet app ────────────────────────────────────────────────
+      # Matches compile_app.sh exactly:
+      #   export PATH="$PWD/libs/qt-5.15.7/bin:$PATH"
+      #   qmake DigitalNote.app.pro USE_UPNP=1 USE_DBUS=1 USE_QRCODE=1
+      #                             USE_BUILD_INFO=1 USE_BIP39=1 RELEASE=1
+      #   make $1
+      - name: Build DigitalNote Qt wallet (app)
+        working-directory: /c/build/DigitalNote-Builder/windows/x64
+        run: |
+          export PATH="$PWD/libs/qt-5.15.7/bin:$PATH"
+          cd DigitalNote-2
+
+          rm -rf build Makefile
+
+          echo "=== qmake (app) ==="
+          qmake DigitalNote.app.pro \
+            USE_UPNP=1 \
+            USE_DBUS=1 \
+            USE_QRCODE=1 \
+            USE_BUILD_INFO=1 \
+            USE_BIP39=1 \
+            RELEASE=1 \
+            2>&1 | tee /c/build/qmake-app.log
+
+          echo "=== make (app) ==="
+          make -j $(nproc) 2>&1 | tee /c/build/build-app.log
+          exit ${PIPESTATUS[0]}
+
+      # ── 8. Build daemon ───────────────────────────────────────────────────────
+      # Matches compile_deamon.sh exactly:
+      #   export PATH="$PWD/libs/qt-5.15.7/bin:$PATH"
+      #   qmake DigitalNote.daemon.pro USE_UPNP=1 USE_BUILD_INFO=1
+      #                                USE_BIP39=1 RELEASE=1
+      #   make $1
+      # Note: daemon has no USE_DBUS and no USE_QRCODE — matches the script
+      - name: Build DigitalNote daemon
+        working-directory: /c/build/DigitalNote-Builder/windows/x64
+        run: |
+          export PATH="$PWD/libs/qt-5.15.7/bin:$PATH"
+          cd DigitalNote-2
+
+          rm -rf build Makefile
+
+          echo "=== qmake (daemon) ==="
+          qmake DigitalNote.daemon.pro \
+            USE_UPNP=1 \
+            USE_BUILD_INFO=1 \
+            USE_BIP39=1 \
+            RELEASE=1 \
+            2>&1 | tee /c/build/qmake-daemon.log
+
+          echo "=== make (daemon) ==="
+          make -j $(nproc) 2>&1 | tee /c/build/build-daemon.log
+          exit ${PIPESTATUS[0]}
+
+      # ── 9. Warning analysis ───────────────────────────────────────────────────
+      - name: Analyse build warnings
+        if: always()
+        run: |
+          APP_LOG=/c/build/build-app.log
+          DAEMON_LOG=/c/build/build-daemon.log
+
+          summarise() {
+            local label=$1
+            local log=$2
+            if [ ! -f "$log" ]; then echo "  (no log found)"; return; fi
+            local w e
+            w=$(grep -c ": warning:" "$log" 2>/dev/null || echo 0)
+            e=$(grep -c ": error:"   "$log" 2>/dev/null || echo 0)
+            echo "  $w warning(s), $e error(s)"
+            if [ "$w" -gt 0 ]; then
+              echo ""
+              echo "  Top warnings by frequency:"
+              grep ": warning:" "$log" \
+                | sed 's|.*: warning:||' \
+                | sort | uniq -c | sort -rn \
+                | head -30 \
+                | awk '{printf "    %4dx  %s\n", $1, substr($0, index($0,$2))}'
+            fi
+          }
+
+          echo "========================================"
+          echo " APP BUILD SUMMARY"
+          echo "========================================"
+          summarise "App" "$APP_LOG"
+
+          echo ""
+          echo "========================================"
+          echo " DAEMON BUILD SUMMARY"
+          echo "========================================"
+          summarise "Daemon" "$DAEMON_LOG"
+
+          # Write combined report
+          {
+            printf "DigitalNote-2 Build Warning Report\n"
+            printf "Ref:    %s\n" "$GITHUB_REF"
+            printf "Commit: %s\n" "$GITHUB_SHA"
+            printf "Date:   %s\n\n" "$(date -u)"
+
+            printf "=== APP WARNINGS (by frequency) ===\n"
+            [ -f "$APP_LOG" ] \
+              && grep ": warning:" "$APP_LOG" \
+                | sed 's|.*: warning:||' \
+                | sort | uniq -c | sort -rn \
+              || printf "(none)\n"
+
+            printf "\n=== DAEMON WARNINGS (by frequency) ===\n"
+            [ -f "$DAEMON_LOG" ] \
+              && grep ": warning:" "$DAEMON_LOG" \
+                | sed 's|.*: warning:||' \
+                | sort | uniq -c | sort -rn \
+              || printf "(none)\n"
+
+            printf "\n=== FULL APP WARNING LINES ===\n"
+            [ -f "$APP_LOG" ] \
+              && grep ": warning:" "$APP_LOG" \
+              || printf "(none)\n"
+
+            printf "\n=== FULL DAEMON WARNING LINES ===\n"
+            [ -f "$DAEMON_LOG" ] \
+              && grep ": warning:" "$DAEMON_LOG" \
+              || printf "(none)\n"
+
+          } > /c/build/warning-report.txt
+
+      # ── 10. Collect and upload ────────────────────────────────────────────────
+      - name: Collect binaries and logs
+        if: always()
+        shell: pwsh
+        run: |
+          $out = "C:\build\artifacts"
+
+          $app = Get-ChildItem C:\build\DigitalNote-Builder\windows\x64\DigitalNote-2 `
+                   -Filter "DigitalNote-qt.exe" -Recurse -ErrorAction SilentlyContinue `
+                   | Select-Object -First 1
+          if ($app) {
+            Copy-Item $app.FullName "$out\DigitalNote-qt.exe"
+            Write-Host "App binary: $($app.FullName) ($([math]::Round($app.Length/1MB,1)) MB)"
+          } else {
+            Write-Host "WARNING: App binary not found"
+          }
+
+          $dmn = Get-ChildItem C:\build\DigitalNote-Builder\windows\x64\DigitalNote-2 `
+                   -Filter "DigitalNoted.exe" -Recurse -ErrorAction SilentlyContinue `
+                   | Select-Object -First 1
+          if ($dmn) {
+            Copy-Item $dmn.FullName "$out\DigitalNoted.exe"
+            Write-Host "Daemon binary: $($dmn.FullName) ($([math]::Round($dmn.Length/1MB,1)) MB)"
+          } else {
+            Write-Host "WARNING: Daemon binary not found"
+          }
+
+          foreach ($f in @(
+            "build-app.log",
+            "build-daemon.log",
+            "qmake-app.log",
+            "qmake-daemon.log",
+            "warning-report.txt"
+          )) {
+            $src = "C:\build\$f"
+            if (Test-Path $src) { Copy-Item $src "$out\$f" }
+          }
+
+          Get-ChildItem $out | Format-Table Name, @{N="Size (KB)";E={[math]::Round($_.Length/1KB,1)}}
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digitalnote-windows-x64-${{ github.sha }}
+          path: C:\build\artifacts\
+          retention-days: 30
+
+      - name: Upload warning report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: warning-report-${{ github.sha }}
+          path: C:\build\warning-report.txt
+          retention-days: 90
