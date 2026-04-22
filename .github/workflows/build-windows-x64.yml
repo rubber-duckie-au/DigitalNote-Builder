@@ -368,6 +368,7 @@ jobs:
       # ── 9. Warning analysis ───────────────────────────────────────────────────
       - name: Analyse build warnings
         if: always()
+        shell: bash
         run: |
           APP_LOG=/c/build/build-app.log
           DAEMON_LOG=/c/build/build-daemon.log
@@ -441,6 +442,7 @@ jobs:
         shell: pwsh
         run: |
           $out = "C:\build\artifacts"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
 
           $app = Get-ChildItem C:\build\DigitalNote-Builder\windows\x64\DigitalNote-2 `
                    -Filter "DigitalNote-qt.exe" -Recurse -ErrorAction SilentlyContinue `
