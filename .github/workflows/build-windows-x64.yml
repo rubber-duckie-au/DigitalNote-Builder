@@ -242,8 +242,8 @@ jobs:
 
       - name: Build support libraries
         if: steps.cache-libs.outputs.cache-hit != 'true'
-        working-directory: /c/build/DigitalNote-Builder/windows/x64
         run: |
+          cd /c/build/DigitalNote-Builder/windows/x64
           export TARGET_OS=NATIVE_WINDOWS
           JOBS=$(nproc)
 
@@ -318,8 +318,8 @@ jobs:
       #                             USE_BUILD_INFO=1 USE_BIP39=1 RELEASE=1
       #   make $1
       - name: Build DigitalNote Qt wallet (app)
-        working-directory: /c/build/DigitalNote-Builder/windows/x64
         run: |
+          cd /c/build/DigitalNote-Builder/windows/x64
           export PATH="$PWD/libs/qt-5.15.7/bin:$PATH"
           cd DigitalNote-2
 
@@ -347,8 +347,8 @@ jobs:
       #   make $1
       # Note: daemon has no USE_DBUS and no USE_QRCODE — matches the script
       - name: Build DigitalNote daemon
-        working-directory: /c/build/DigitalNote-Builder/windows/x64
         run: |
+          cd /c/build/DigitalNote-Builder/windows/x64
           export PATH="$PWD/libs/qt-5.15.7/bin:$PATH"
           cd DigitalNote-2
 
