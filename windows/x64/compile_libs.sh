@@ -15,3 +15,4 @@ export TARGET_OS=NATIVE_WINDOWS
 ../../compile/qrencode.sh "" $1
 ../../compile/secp256k1.sh "" $1
 ../../compile/qt.sh "-platform win32-g++" $1
+../../compile/mnemonic.sh "" $1
