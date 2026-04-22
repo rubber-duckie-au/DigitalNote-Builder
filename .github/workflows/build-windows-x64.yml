@@ -94,7 +94,7 @@ jobs:
         shell: pwsh
         run: |
           # Create all required directories first
-          New-Item -ItemType Directory -Force -Path C:\build\download
+          New-Item -ItemType Directory -Force -Path C:\build\DigitalNote-Builder\download
           New-Item -ItemType Directory -Force -Path C:\build\artifacts
 
           # Copy builder repo contents (not the folder itself) into C:\build\DigitalNote-Builder
@@ -175,25 +175,18 @@ jobs:
       #   secp256k1:  bundled in DigitalNote-2/src/secp256k1/ — no download
       #   mnemonic:   git submodule in DigitalNote-2/src/bip39/ — no download
 
-      - name: Create download symlink
-        run: |
-          # From windows/x64/temp/, scripts do ../../../download
-          # = windows/x64/temp/ -> windows/x64/ -> windows/ -> Builder root
-          # So Builder root needs a download/ dir
-          ln -sf /c/build/download \
-              /c/build/DigitalNote-Builder/download
-
       - name: Cache source archives
         id: cache-downloads
         uses: actions/cache@v4
         with:
-          path: C:\build\download
+          path: C:\build\DigitalNote-Builder\download
           key: source-archives-v1
 
       - name: Download source archives
         if: steps.cache-downloads.outputs.cache-hit != 'true'
         run: |
-          cd /c/build/download
+          mkdir -p /c/build/DigitalNote-Builder/download
+          cd /c/build/DigitalNote-Builder/download
 
           echo "=== Boost 1.80.0 ==="
           wget -q \
@@ -223,7 +216,7 @@ jobs:
             https://github.com/fukuchi/libqrencode/archive/refs/tags/v4.1.1.tar.gz
 
           echo "=== Downloads complete ==="
-          ls -lh /c/build/download/
+          ls -lh /c/build/DigitalNote-Builder/download/
 
       # ── 6. Compiled libraries — cached by hash of all compile/*.sh ────────────
       - name: Cache compiled libraries
