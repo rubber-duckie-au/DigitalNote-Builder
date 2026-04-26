@@ -2,7 +2,7 @@
 
 cd temp
 
-tar xvfz ../../../download/v4.1.1.tar.gz
+tar xfz ../../../download/v4.1.1.tar.gz
 
 cd libqrencode-4.1.1
 

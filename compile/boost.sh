@@ -2,7 +2,7 @@
 
 cd temp
 
-tar xvfz ../../../download/boost_1_80_0.tar.gz
+tar xfz ../../../download/boost_1_80_0.tar.gz
 
 cd boost_1_80_0
 

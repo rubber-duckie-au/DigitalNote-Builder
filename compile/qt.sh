@@ -2,7 +2,7 @@
 
 cd temp
 
-tar -vxf ../../../download/qt-everywhere-opensource-src-5.15.7.tar.xz -X ../../../patch/exclude_qt.txt
+tar -xf ../../../download/qt-everywhere-opensource-src-5.15.7.tar.xz -X ../../../patch/exclude_qt.txt
 
 cd qt-everywhere-src-5.15.7
 

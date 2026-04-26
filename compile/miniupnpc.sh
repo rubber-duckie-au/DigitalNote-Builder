@@ -2,7 +2,7 @@
 
 cd temp
 
-tar xvfz ../../../download/miniupnpc-2.2.8.tar.gz
+tar xfz ../../../download/miniupnpc-2.2.8.tar.gz
 
 cd miniupnpc-2.2.8
 
