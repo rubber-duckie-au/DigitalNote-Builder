@@ -14,9 +14,9 @@
 #   $2 = make parallel flags
  
 cd temp
-
+ 
 tar xvfz ../../../download/v4.1.1.tar.gz
-
+ 
 cd libqrencode-4.1.1
  
 ./autogen.sh

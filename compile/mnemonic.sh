@@ -19,7 +19,7 @@ rm -rf "$BIP39_DIR/build"
 mkdir -p "$BIP39_DIR/build"
 cd "$BIP39_DIR/build"
  
-cmake "$BIP39_DIR"     -G "MinGW Makefiles"     -DCMAKE_INSTALL_PREFIX="$LIBS_DIR/mnemonic"     -DCMAKE_BUILD_TYPE=Release     -DOPENSSL_ROOT_DIR="$LIBS_DIR/openssl-1.1.1w"     -DOPENSSL_INCLUDE_DIR="$LIBS_DIR/openssl-1.1.1w/include"     -DOPENSSL_CRYPTO_LIBRARY="$LIBS_DIR/openssl-1.1.1w/lib/libcrypto.a"     -DOPENSSL_SSL_LIBRARY="$LIBS_DIR/openssl-1.1.1w/lib/libssl.a"
+cmake "$BIP39_DIR"     -G "MinGW Makefiles"     -DCMAKE_INSTALL_PREFIX="$LIBS_DIR/mnemonic"     -DCMAKE_BUILD_TYPE=Release     -DOPENSSL_ROOT_DIR="$LIBS_DIR/openssl-3.5.7"     -DOPENSSL_INCLUDE_DIR="$LIBS_DIR/openssl-3.5.7/include"     -DOPENSSL_CRYPTO_LIBRARY="$LIBS_DIR/openssl-3.5.7/lib/libcrypto.a"     -DOPENSSL_SSL_LIBRARY="$LIBS_DIR/openssl-3.5.7/lib/libssl.a"
  
 mingw32-make $2
 cmake --install . --prefix "$LIBS_DIR/mnemonic"
