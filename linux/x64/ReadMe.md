@@ -28,8 +28,8 @@ This will take a while to compile; take a coffee while this runs.
 
 Once finished, we can compile the project.
 
-	./compile_daemon.sh  "-j 4"
-	./compile_app.sh  "-j 4"
+	./compile_daemon.sh
+	./compile_app.sh
 
 And thats it! :D
 
