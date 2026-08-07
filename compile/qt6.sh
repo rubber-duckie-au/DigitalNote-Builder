@@ -19,8 +19,21 @@
 #       -static                -> -DBUILD_SHARED_LIBS=OFF
 #       -release               -> -DCMAKE_BUILD_TYPE=Release
 #       -prefix X              -> -DCMAKE_INSTALL_PREFIX=X
-#       -qt-zlib etc           -> -DQT_FEATURE_system_zlib=OFF (per feature)
+#       -qt-zlib etc           -> -DFEATURE_system_zlib=OFF (per feature)
 #       -no-opengl             -> -DINPUT_opengl=no
+#
+#    >>> FEATURE_ vs QT_FEATURE_ -- THE TRAP THAT COST RUN 1 <<<
+#    In Qt6, `FEATURE_<name>` is the USER INPUT variable and
+#    `QT_FEATURE_<name>` is the INTERNAL COMPUTED RESULT.  Setting the
+#    QT_-prefixed form does nothing: Qt recomputes and overwrites it.  And
+#    because Qt's own build system DOES read those variables, CMake emits no
+#    "unused variable" warning -- so there is no smoking gun.  Run 1 set
+#    -DQT_FEATURE_opengl=OFF, Qt ignored it, auto-detected OpenGL, and the
+#    functionality test failed at configure.
+#    Value-type options (opengl is no/desktop/es2/dynamic, not a boolean) use
+#    the `INPUT_<name>` form, which is exactly what Qt5's configure generated.
+#    Note QT_BUILD_EXAMPLES / QT_BUILD_TESTS / QT_BUILD_BENCHMARKS ARE
+#    correctly QT_-prefixed -- they are build options, not features.
 #       -skip qtfoo            -> not needed; we build qtbase ALONE
 #       -nomake tools/examples -> -DQT_BUILD_TOOLS_BY_DEFAULT / EXAMPLES=OFF
 #       make && make install   -> cmake --build && cmake --install
@@ -106,16 +119,34 @@ cmake -S . -B build \
 	-DQT_BUILD_EXAMPLES=OFF \
 	-DQT_BUILD_TESTS=OFF \
 	-DQT_BUILD_BENCHMARKS=OFF \
-	-DQT_FEATURE_system_zlib=OFF \
-	-DQT_FEATURE_system_libpng=OFF \
-	-DQT_FEATURE_system_libjpeg=OFF \
-	-DQT_FEATURE_system_freetype=OFF \
-	-DQT_FEATURE_system_pcre2=OFF \
-	-DQT_FEATURE_opengl=OFF \
-	-DQT_FEATURE_sql=OFF \
-	-DQT_FEATURE_testlib=OFF \
-	-DQT_FEATURE_dbus=OFF \
+	-DFEATURE_system_zlib=OFF \
+	-DFEATURE_system_libpng=OFF \
+	-DFEATURE_system_libjpeg=OFF \
+	-DFEATURE_system_freetype=OFF \
+	-DFEATURE_system_pcre2=OFF \
+	-DFEATURE_sql=OFF \
+	-DFEATURE_dbus=OFF \
+	-DINPUT_opengl=no \
 	$EXTRA_CMAKE
+
+# ---------------------------------------------------------------------------
+# Verify the feature flags actually took effect.
+#
+# This check exists because of the 2026-08-07 run-1 failure: the flags were
+# originally written as -DQT_FEATURE_<name>, which Qt6 SILENTLY IGNORES (see
+# the header note).  CMake issued no unused-variable warning, so the only
+# symptom was OpenGL being auto-detected and its functionality test failing
+# 23 seconds in.  Printing the resolved values means a wrong flag name shows
+# up as a wrong VALUE here rather than as a mystery failure later.
+# ---------------------------------------------------------------------------
+echo
+echo "==> resolved feature values (confirm these match intent)"
+for f in opengl system_zlib system_libpng system_libjpeg system_freetype \
+         system_pcre2 sql dbus static; do
+	printf '    %-20s %s\n' "$f" \
+		"$(cmake -L -N build 2>/dev/null | grep -E "^QT_FEATURE_${f}:" | cut -d= -f2)"
+done
+echo
 
 echo "==> building"
 # shellcheck disable=SC2086
