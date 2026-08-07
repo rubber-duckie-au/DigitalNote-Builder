@@ -1,0 +1,220 @@
+name: Qt6 Probe (throwaway)
+
+# ============================================================================
+# VERIFICATION EXERCISE. NOT PART OF THE RELEASE FLOW.
+#
+# Answers ONE question: does a static Qt6 qtbase build with our flags, per
+# target?  It does NOT build the wallet -- the wallet cannot compile against
+# Qt6 until ~48 API sites are migrated (QRegExp, QSignalMapper, QTextCodec,
+# endl, SkipEmptyParts, toTime_t, foreach).  Those are two separable
+# milestones and this is milestone 1, which needs NO wallet changes at all.
+#
+# WHY THIS LIVES IN DigitalNote-Builder AND NOT THE WALLET REPO:
+#   * milestone 1 does not involve the wallet
+#   * Builder had no .github at all, so this is greenfield
+#   * it cannot be triggered by a wallet push
+#
+# WHY A BRANCH IS ENOUGH AND A FORK IS NOT NEEDED:
+#   The release workflows clone Builder with
+#       git clone https://github.com/DigitalNoteXDN/DigitalNote-Builder.git
+#   -- no -b flag, no ref input anywhere.  They ALWAYS get master.  So
+#   everything on qt6-probe is invisible to the release flow by construction.
+#   >>> Do not add a builder-ref input to the release workflows while this
+#   >>> branch exists, and do not merge qt6-probe to master until the wallet
+#   >>> migration is done. <<<
+#
+# >>> CACHE ISOLATION -- THE ONE REAL FOOTGUN <<<
+#   The release CI restores from keys like
+#       linux-x64-libs-v8-${{ hashFiles(...) }}
+#   If this probe wrote anything under that namespace, a half-built or broken
+#   Qt6 tree would be silently restored into RELEASE builds.  Everything here
+#   is namespaced `qt6probe-*` and, because artifacts are disposable, THIS
+#   WORKFLOW DOES NOT WRITE A CACHE AT ALL.  Nothing it produces can outlive
+#   the run.  Keep it that way.
+#
+# TARGET ORDER (run them one at a time, stopping early is a valid outcome):
+#   1. linux-x64   -- no cross-compile, no platform patches. Does the CMake
+#                     rewrite work at all?
+#   2. windows-x64 -- HIGHEST INFORMATION. All 8 obsolete forwarding shims in
+#                     patch/ were Windows/font related. If static Qt6 Windows
+#                     needs no equivalent, that is the single biggest de-risk.
+#   3/4. macos     -- where patch/qiosurfacegraphicsbuffer.h must be
+#                     re-derived against Qt6's cocoa plugin.
+#   5. linux-aarch64 -- hardest. Qt6 cross-compilation requires a HOST Qt
+#                     build first, which is a structural rewrite of
+#                     linux/aarch64/compile_libs.sh, not a flag change.
+#
+# If 1 and 2 both pass, the toolchain rewrite is tractable. If 2 fights,
+# you learned it in a couple of days instead of three weeks.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which target to probe"
+        required: true
+        type: choice
+        options:
+          - linux-x64
+          - windows-x64
+        default: linux-x64
+      qt_version:
+        description: "Qt6 version"
+        required: false
+        type: string
+        default: "6.8.3"
+
+jobs:
+
+  # -- Target 1: Linux x64 --------------------------------------------------
+  probe-linux-x64:
+    name: Qt6 probe - Linux x64
+    if: inputs.target == 'linux-x64'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+
+    env:
+      QT_VER: ${{ inputs.qt_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain + Qt6 build deps
+        run: |
+          sudo apt-get update -qq
+          # Qt6 needs cmake >= 3.16 and ninja; the rest mirror what the Qt5
+          # build linked against on this target (-fontconfig -system-freetype
+          # in the old qt.sh call, plus the xcb stack for the platform plugin).
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build perl python3 \
+            libfontconfig1-dev libfreetype-dev \
+            libx11-dev libx11-xcb-dev libxcb1-dev libxcb-glx0-dev \
+            libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev \
+            libxcb-randr0-dev libxcb-render-util0-dev libxcb-shape0-dev \
+            libxcb-sync-dev libxcb-util-dev libxcb-xfixes0-dev \
+            libxcb-xinerama0-dev libxcb-xkb-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev
+          echo "cmake: $(cmake --version | head -1)"
+          echo "gcc:   $(gcc --version | head -1)"
+
+      - name: Fetch qtbase
+        run: bash download_qt6.sh
+
+      - name: Build static Qt6
+        working-directory: linux/x64
+        run: |
+          mkdir -p temp libs
+          bash ../../compile/qt6.sh "" "-j$(nproc)"
+
+      - name: Report outcome
+        if: always()
+        run: |
+          PREFIX="linux/x64/libs/qt-${QT_VER}"
+          echo "## Qt6 probe - Linux x64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "$PREFIX/lib" ]; then
+            echo "**BUILD SUCCEEDED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Static libs produced:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            ls "$PREFIX/lib" | grep -E '\.a$' >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Confirm Qt6Core/Qt6Gui/Qt6Widgets/Qt6Network are all present." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**BUILD FAILED** - no lib directory at \`$PREFIX\`." >> $GITHUB_STEP_SUMMARY
+            echo "Read the configure step output above; CMake feature errors" >> $GITHUB_STEP_SUMMARY
+            echo "usually name the missing dependency directly." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # Artifacts are DISPOSABLE by design -- this run proves the toolchain
+      # builds, it does not produce anything to keep.  No cache, no upload.
+      - name: Note on artifacts
+        if: always()
+        run: echo "Artifacts intentionally discarded - this is a verification exercise."
+
+  # -- Target 2: Windows x64 (MSYS2 MinGW64) --------------------------------
+  probe-windows-x64:
+    name: Qt6 probe - Windows x64
+    if: inputs.target == 'windows-x64'
+    runs-on: windows-2022
+    timeout-minutes: 300
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    env:
+      QT_VER: ${{ inputs.qt_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Mirrors the wallet CI's MSYS2 setup, plus cmake/ninja which the Qt5
+      # configure-based build did not need.
+      - name: Set up MSYS2 MinGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            base-devel
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-gcc-libs
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pcre2
+            mingw-w64-x86_64-double-conversion
+            mingw-w64-x86_64-zstd
+            mingw-w64-x86_64-libwinpthread
+            mingw-w64-x86_64-md4c
+            perl
+            make
+
+      - name: Fetch qtbase
+        run: bash download_qt6.sh
+
+      # THE INTERESTING ONE.  The Qt5 build needed eight forwarding shims here
+      # (patch/qwindows*_p.h, patch/qfont*_p.h) because static Windows Qt5
+      # generated broken sync-headers under QtFontDatabaseSupport /
+      # QtEventDispatcherSupport / QtWindowsUIAutomationSupport.  Those modules
+      # DO NOT EXIST in Qt6.  If this step succeeds with no patches at all,
+      # that whole class of hack is retired.
+      - name: Build static Qt6
+        working-directory: windows/x64
+        run: |
+          mkdir -p temp libs
+          bash ../../compile/qt6.sh "-G Ninja" "-j$(nproc)"
+
+      - name: Report outcome
+        if: always()
+        run: |
+          PREFIX="windows/x64/libs/qt-${QT_VER}"
+          echo "## Qt6 probe - Windows x64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "$PREFIX/lib" ]; then
+            echo "**BUILD SUCCEEDED - and with ZERO font/platform patches.**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "That retires all 8 forwarding shims in \`patch/\`:" >> $GITHUB_STEP_SUMMARY
+            echo "qfontengine_ft_p.h, qfreetypefontdatabase_p.h," >> $GITHUB_STEP_SUMMARY
+            echo "qwindowsfontdatabase_p.h, qwindowsfontdatabase_ft_p.h," >> $GITHUB_STEP_SUMMARY
+            echo "qwindowsfontengine_p.h, qwindowsnativeimage_p.h," >> $GITHUB_STEP_SUMMARY
+            echo "qwindowsguieventdispatcher_p.h, qwindowsuiawrapper_p.h" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            ls "$PREFIX/lib" | grep -E '\.a$' >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**BUILD FAILED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "If the failure is missing private headers under a" >> $GITHUB_STEP_SUMMARY
+            echo "\`*Support\` include path, that is the Qt6 analogue of the" >> $GITHUB_STEP_SUMMARY
+            echo "problem the 8 shims solved - record the exact paths, they" >> $GITHUB_STEP_SUMMARY
+            echo "are what a Qt6 patch set would need to target." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Note on artifacts
+        if: always()
+        run: echo "Artifacts intentionally discarded - this is a verification exercise."
