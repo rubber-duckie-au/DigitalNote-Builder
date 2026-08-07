@@ -141,11 +141,21 @@ cmake -S . -B build \
 # ---------------------------------------------------------------------------
 echo
 echo "==> resolved feature values (confirm these match intent)"
+# Read CMakeCache.txt DIRECTLY.  Run 2 used `cmake -L -N build` here and got
+# blank output for every feature: QT_FEATURE_* are INTERNAL cache entries, and
+# `cmake -L` only lists non-advanced, non-internal ones (-LA does not help
+# either).  Grepping the cache file is the only reliable read.
 for f in opengl system_zlib system_libpng system_libjpeg system_freetype \
          system_pcre2 sql dbus static; do
-	printf '    %-20s %s\n' "$f" \
-		"$(cmake -L -N build 2>/dev/null | grep -E "^QT_FEATURE_${f}:" | cut -d= -f2)"
+	val="$(grep -E "^QT_FEATURE_${f}:" build/CMakeCache.txt 2>/dev/null | head -1 | cut -d= -f2-)"
+	printf '    %-20s %s\n' "$f" "${val:-<not in cache>}"
 done
+echo
+# Corroborating evidence that does not depend on the cache at all: if the
+# bundled feature flags took effect, Qt builds its OWN copies and the names
+# are unmistakable.  This is how run 2 was actually verified.
+echo "==> bundled 3rd-party libs (presence proves FEATURE_system_*=OFF worked)"
+ls "$PREFIX/lib" 2>/dev/null | grep -E "^libQt6Bundled" | sed 's/^/    /' || echo "    (none found)"
 echo
 
 echo "==> building"
