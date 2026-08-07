@@ -34,7 +34,9 @@ name: Qt6 Probe (throwaway)
 #   macos-x64    run 5  PASS  ~25 min, ZERO patches -- qiosurfacegraphicsbuffer.h
 #                             is retired too.  Built FRAMEWORKS by default;
 #                             now forced to plain .a via -DFEATURE_framework=OFF
-#   macos-arm64 / linux-aarch64  -- not yet attempted
+#   macos-arm64  run 6  PASS  zero patches; all pins verified resolved
+#                             (framework OFF, system_jpeg OFF, system_png OFF)
+#   linux-aarch64  -- NOT YET ATTEMPTED.  The only remaining unknown.
 #
 # OPEN ISSUE CARRIED INTO THE REMAINING TARGETS
 #   RESOLVED run 5.  The cache dump revealed the real feature names are
@@ -255,16 +257,46 @@ jobs:
       - name: Cross toolchain + multiarch deps
         run: |
           sudo dpkg --add-architecture arm64
+
           # arm64 packages are NOT on the primary mirrors -- ports.ubuntu.com
-          # serves them.  The default sources must be restricted to amd64
-          # first or apt-get update fails trying to fetch arm64 indexes from
-          # the main mirror.  (This mirrors what the release CI's update.sh
-          # does for the Qt5 cross-build.)
-          sudo sed -i 's|^deb http|deb [arch=amd64] http|g' /etc/apt/sources.list
+          # serves them.  EVERY existing source must therefore be restricted to
+          # amd64 first, or apt-get update tries to fetch arm64 indexes from
+          # mirrors that do not carry them and dies with 404s.
+          #
+          # RUN 7 FAILED HERE.  The original version sed'd only
+          # /etc/apt/sources.list, but this runner also carries entries
+          # elsewhere, and those stayed unrestricted -- producing four 404s
+          # against https://security.ubuntu.com/.../binary-arm64/Packages.
+          # Handle BOTH file locations AND both formats (one-line and deb822),
+          # and print before/after so a future failure is self-diagnosing
+          # rather than another blind round trip.
+          echo "--- apt sources BEFORE ---"
+          sudo grep -rhE '^(deb|Types:|URIs:|Architectures:)'             /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | sed 's/^/  /' || true
+
+          # one-line format: /etc/apt/sources.list and *.list
+          sudo sed -i -E 's|^deb (\[[^]]*\] *)?|deb [arch=amd64] |' /etc/apt/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] || continue
+            sudo sed -i -E 's|^deb (\[[^]]*\] *)?|deb [arch=amd64] |' "$f"
+          done
+
+          # deb822 format: *.sources needs an Architectures: line instead
+          for f in /etc/apt/sources.list.d/*.sources; do
+            [ -f "$f" ] || continue
+            if ! sudo grep -q '^Architectures:' "$f"; then
+              sudo sed -i '/^Types:/a Architectures: amd64' "$f"
+            fi
+          done
+
+          # now add the arm64-only ports source
           cat <<'EOF' | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
           EOF
+
+          echo "--- apt sources AFTER ---"
+          sudo grep -rhE '^(deb|Types:|URIs:|Architectures:)'             /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | sed 's/^/  /' || true
+
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build perl python3 \
