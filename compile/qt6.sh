@@ -70,6 +70,18 @@
 #    be ported blind.  macOS is deliberately targets 3-4 in the probe order;
 #    re-derive against Qt6's cocoa plugin when you get there.
 #
+# 6. FEATURE_system_libpng / FEATURE_system_libjpeg ARE NOT VALID HERE.
+#    Windows run 3 produced:
+#        CMake Warning (unused-cli): Manually-specified variables were not
+#        used by the project: FEATURE_system_libjpeg, FEATURE_system_libpng
+#    Dropped rather than renamed.  Bundled is already the default when no
+#    system copy is found -- Linux run 2 produced libQt6BundledLibpng.a with
+#    the flag present-but-ignored, so removing it changes nothing.  The most
+#    likely explanation is that JPEG/PNG image-format handling is not a
+#    qtbase-level feature under this spelling (qtimageformats territory).
+#    IF a future run ever links a SYSTEM libpng, look the correct Qt6 feature
+#    name up rather than guessing at a rename.
+#
 # USAGE:  qt6.sh "<extra cmake args>" "<make -j flag>"
 #         Mirrors qt.sh's two-argument shape so the per-target scripts read
 #         the same way.
@@ -120,8 +132,6 @@ cmake -S . -B build \
 	-DQT_BUILD_TESTS=OFF \
 	-DQT_BUILD_BENCHMARKS=OFF \
 	-DFEATURE_system_zlib=OFF \
-	-DFEATURE_system_libpng=OFF \
-	-DFEATURE_system_libjpeg=OFF \
 	-DFEATURE_system_freetype=OFF \
 	-DFEATURE_system_pcre2=OFF \
 	-DFEATURE_sql=OFF \
@@ -145,9 +155,16 @@ echo "==> resolved feature values (confirm these match intent)"
 # blank output for every feature: QT_FEATURE_* are INTERNAL cache entries, and
 # `cmake -L` only lists non-advanced, non-internal ones (-LA does not help
 # either).  Grepping the cache file is the only reliable read.
-for f in opengl system_zlib system_libpng system_libjpeg system_freetype \
-         system_pcre2 sql dbus static; do
-	val="$(grep -E "^QT_FEATURE_${f}:" build/CMakeCache.txt 2>/dev/null | head -1 | cut -d= -f2-)"
+for f in opengl system_zlib system_freetype system_pcre2 sql dbus static; do
+	# NOTE the `|| true`.  Without it this line KILLS THE SCRIPT under
+	# `set -e`: when grep matches nothing it exits 1, and a command
+	# substitution in an ASSIGNMENT propagates that status.  That is exactly
+	# what happened on Windows run 3 -- configure had SUCCEEDED, then this
+	# loop aborted the job at the first feature not present in the cache,
+	# before `cmake --build` ever ran.  (Linux run 2 survived the same code
+	# shape only because the substitution was an ARGUMENT to printf, whose
+	# own exit status is what `set -e` sees.)
+	val="$(grep -E "^QT_FEATURE_${f}:" build/CMakeCache.txt 2>/dev/null | head -1 | cut -d= -f2- || true)"
 	printf '    %-20s %s\n' "$f" "${val:-<not in cache>}"
 done
 echo
