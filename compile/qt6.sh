@@ -168,11 +168,20 @@ for f in opengl system_zlib system_freetype system_pcre2 sql dbus static; do
 	printf '    %-20s %s\n' "$f" "${val:-<not in cache>}"
 done
 echo
-# Corroborating evidence that does not depend on the cache at all: if the
-# bundled feature flags took effect, Qt builds its OWN copies and the names
-# are unmistakable.  This is how run 2 was actually verified.
-echo "==> bundled 3rd-party libs (presence proves FEATURE_system_*=OFF worked)"
-ls "$PREFIX/lib" 2>/dev/null | grep -E "^libQt6Bundled" | sed 's/^/    /' || echo "    (none found)"
+# DISCOVERY: the real Qt6 feature names for image codecs.
+#
+# Run 3 showed FEATURE_system_libpng / FEATURE_system_libjpeg are NOT valid
+# (CMake: "unused-cli").  Run 4 then exposed a genuine divergence: Windows
+# produced libQt6BundledLibjpeg.a but LINUX DID NOT -- Linux built QJpegPlugin
+# against a SYSTEM libjpeg from the runner.  For a static release build,
+# silently linking whatever libjpeg happens to be installed on a CI runner is
+# not acceptable; the Qt5 build forced bundled with -qt-libjpeg.
+#
+# Rather than guess at a rename, dump every cache entry whose name mentions
+# jpeg or png.  Whatever comes back IS the correct flag name to pin.
+echo "==> image-codec features present in the cache (find the right name to pin)"
+grep -E "^QT_FEATURE_[A-Za-z0-9_]*(jpeg|png)" build/CMakeCache.txt 2>/dev/null \
+	| sed 's/^/    /' || echo "    (none matched)"
 echo
 
 echo "==> building"
@@ -185,4 +194,20 @@ cmake --install build
 echo
 echo "==> qtbase ${QT_VER} static build COMPLETE"
 echo "    prefix: $PREFIX"
-ls -la "$PREFIX/lib" 2>/dev/null | head -20 || true
+echo
+# Moved here from just-after-configure (run 4 printed an empty list because
+# $PREFIX/lib does not exist until `cmake --install` has run).
+echo "==> bundled 3rd-party libs (presence proves the bundled flags took effect)"
+ls "$PREFIX/lib" 2>/dev/null | grep -E "^libQt6Bundled" | sed 's/^/    /' || echo "    (none found)"
+echo
+echo "==> modules the wallet requires"
+for m in Qt6Core Qt6Gui Qt6Widgets Qt6Network; do
+	if [ -f "$PREFIX/lib/lib${m}.a" ]; then
+		printf '    %-14s OK  %s\n' "$m" "$(du -h "$PREFIX/lib/lib${m}.a" | cut -f1)"
+	else
+		printf '    %-14s MISSING\n' "$m"
+	fi
+done
+echo
+echo "==> all static libs"
+ls "$PREFIX/lib" 2>/dev/null | grep -E '\.a$' | sed 's/^/    /' || true
