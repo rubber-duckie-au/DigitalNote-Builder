@@ -70,6 +70,17 @@
 #    be ported blind.  macOS is deliberately targets 3-4 in the probe order;
 #    re-derive against Qt6's cocoa plugin when you get there.
 #
+# 7. macOS BUILDS FRAMEWORKS BY DEFAULT, even for a static build.
+#    Run 5 (macOS Intel) linked static libs INSIDE framework bundles:
+#        [ 38%] Linking CXX static library ../../lib/QtCore.framework/QtCore
+#    i.e. lib/QtCore.framework/QtCore, with NO .a extension and NO "Qt6"
+#    in the name.  The build was CORRECT; the report script's
+#    `[ -f lib/libQt6Core.a ]` test simply could not see it and wrongly said
+#    MISSING.  Qt5's -static implied no frameworks, so -DFEATURE_framework=OFF
+#    is passed on macOS to match that baseline and keep all five targets
+#    producing the same libQt6*.a layout.  probe-report.sh also detects the
+#    framework layout as a safety net.
+#
 # 6. FEATURE_system_libpng / FEATURE_system_libjpeg ARE NOT VALID HERE.
 #    Windows run 3 produced:
 #        CMake Warning (unused-cli): Manually-specified variables were not
@@ -79,8 +90,10 @@
 #    the flag present-but-ignored, so removing it changes nothing.  The most
 #    likely explanation is that JPEG/PNG image-format handling is not a
 #    qtbase-level feature under this spelling (qtimageformats territory).
-#    IF a future run ever links a SYSTEM libpng, look the correct Qt6 feature
-#    name up rather than guessing at a rename.
+#    >>> ANSWERED by the run-5 cache dump: the real names are `system_jpeg`
+#    >>> and `system_png` -- no `lib` prefix.  Both are now pinned OFF above.
+#    >>> Discovered, not guessed: QT_FEATURE_LABEL_system_jpeg exists and
+#    >>> QT_FEATURE_LABEL_system_libjpeg does not.
 #
 # USAGE:  qt6.sh "<extra cmake args>" "<make -j flag>"
 #         Mirrors qt.sh's two-argument shape so the per-target scripts read
@@ -133,6 +146,8 @@ cmake -S . -B build \
 	-DQT_BUILD_BENCHMARKS=OFF \
 	-DFEATURE_system_zlib=OFF \
 	-DFEATURE_system_freetype=OFF \
+	-DFEATURE_system_jpeg=OFF \
+	-DFEATURE_system_png=OFF \
 	-DFEATURE_system_pcre2=OFF \
 	-DFEATURE_sql=OFF \
 	-DFEATURE_dbus=OFF \
@@ -155,7 +170,8 @@ echo "==> resolved feature values (confirm these match intent)"
 # blank output for every feature: QT_FEATURE_* are INTERNAL cache entries, and
 # `cmake -L` only lists non-advanced, non-internal ones (-LA does not help
 # either).  Grepping the cache file is the only reliable read.
-for f in opengl system_zlib system_freetype system_pcre2 sql dbus static; do
+for f in opengl system_zlib system_freetype system_pcre2 system_jpeg \
+         system_png sql dbus static framework; do
 	# NOTE the `|| true`.  Without it this line KILLS THE SCRIPT under
 	# `set -e`: when grep matches nothing it exits 1, and a command
 	# substitution in an ASSIGNMENT propagates that status.  That is exactly

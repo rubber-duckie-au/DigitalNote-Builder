@@ -31,14 +31,17 @@ name: Qt6 Probe (throwaway)
 #   linux-x64    run 2  PASS  ~20 min, all four modules
 #   windows-x64  run 4  PASS  ~21 min, all four modules, ZERO patches --
 #                             the eight forwarding shims in patch/ are retired
-#   macos-x64 / macos-arm64 / linux-aarch64  -- not yet attempted
+#   macos-x64    run 5  PASS  ~25 min, ZERO patches -- qiosurfacegraphicsbuffer.h
+#                             is retired too.  Built FRAMEWORKS by default;
+#                             now forced to plain .a via -DFEATURE_framework=OFF
+#   macos-arm64 / linux-aarch64  -- not yet attempted
 #
 # OPEN ISSUE CARRIED INTO THE REMAINING TARGETS
-#   Linux linked a SYSTEM libjpeg (no libQt6BundledLibjpeg.a) while Windows
-#   used bundled.  The Qt5 build forced bundled via -qt-libjpeg; that intent
-#   is not currently expressed because FEATURE_system_libjpeg is not a valid
-#   Qt6 name.  compile/qt6.sh now dumps every cache entry matching jpeg|png
-#   so the correct name can be pinned.  WATCH THAT OUTPUT on every run.
+#   RESOLVED run 5.  The cache dump revealed the real feature names are
+#   `system_jpeg` and `system_png` -- NO `lib` prefix -- which is why
+#   FEATURE_system_libjpeg was reported unused-cli.  Both are now pinned OFF
+#   in compile/qt6.sh.  probe-report.sh still calls out per target whether
+#   JPEG came from bundled or system, so a regression cannot pass silently.
 # ============================================================================
 
 on:
@@ -183,7 +186,12 @@ jobs:
         working-directory: macos/x64
         run: |
           mkdir -p temp libs
-          bash ../../compile/qt6.sh "" "-j$(sysctl -n hw.ncpu)"
+          # -DFEATURE_framework=OFF: macOS Qt6 defaults to FRAMEWORKS even for
+          # a static build (run 5 produced lib/QtCore.framework/QtCore, a
+          # static lib with no .a extension).  Qt5's -static implied no
+          # frameworks, so this matches the existing baseline and keeps all
+          # five targets emitting the same libQt6*.a layout.
+          bash ../../compile/qt6.sh "-DFEATURE_framework=OFF" "-j$(sysctl -n hw.ncpu)"
 
       - name: Report outcome
         if: always()
@@ -216,7 +224,7 @@ jobs:
         working-directory: macos/arm64
         run: |
           mkdir -p temp libs
-          bash ../../compile/qt6.sh "-DCMAKE_OSX_ARCHITECTURES=arm64" "-j$(sysctl -n hw.ncpu)"
+          bash ../../compile/qt6.sh "-DCMAKE_OSX_ARCHITECTURES=arm64 -DFEATURE_framework=OFF" "-j$(sysctl -n hw.ncpu)"
 
       - name: Report outcome
         if: always()

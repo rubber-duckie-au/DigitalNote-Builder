@@ -48,9 +48,20 @@ summary "### Modules the wallet requires"
 summary ""
 summary '```'
 for m in Qt6Core Qt6Gui Qt6Widgets Qt6Network; do
-	if [ -f "$PREFIX/lib/lib${m}.a" ]; then
-		sz="$(du -h "$PREFIX/lib/lib${m}.a" 2>/dev/null | cut -f1)"
-		summary "  ${m}  OK  ${sz}"
+	# TWO layouts are possible, and run 5 proved it the hard way:
+	#   Linux / Windows : lib/libQt6Core.a
+	#   macOS (default) : lib/QtCore.framework/QtCore   <- static lib, no .a,
+	#                     and NO "Qt6" in the name
+	# The macOS build in run 5 was entirely correct; this script's original
+	# .a-only test reported all four modules MISSING.  Check both.
+	fw="Qt${m#Qt6}"                       # Qt6Core -> QtCore
+	flat="$PREFIX/lib/lib${m}.a"
+	bundle="$PREFIX/lib/${fw}.framework/${fw}"
+
+	if [ -f "$flat" ]; then
+		summary "  ${m}  OK  $(du -h "$flat" 2>/dev/null | cut -f1)"
+	elif [ -f "$bundle" ]; then
+		summary "  ${m}  OK  $(du -h "$bundle" 2>/dev/null | cut -f1)  (framework layout)"
 	else
 		summary "  ${m}  MISSING"
 		MISSING=1
@@ -83,13 +94,15 @@ fi
 summary '```'
 summary ""
 
-if ls "$PREFIX/lib" 2>/dev/null | grep -q '^libQt6BundledLibjpeg'; then
+if ls "$PREFIX/lib" 2>/dev/null | grep -qi 'BundledLibjpeg'; then
 	summary "JPEG: **bundled** (correct - matches the Qt5 \`-qt-libjpeg\` intent)."
 else
-	summary "JPEG: **SYSTEM libjpeg was linked** - this is the known open issue."
+	summary "JPEG: **SYSTEM libjpeg was linked.**"
 	summary "A static release build must not depend on whatever libjpeg happens"
-	summary "to be installed on a CI runner. Check the image-codec feature dump"
-	summary "in the build step output for the correct Qt6 feature name to pin."
+	summary "to be installed on a CI runner. The correct feature names were"
+	summary "identified in run 5 and are now pinned in compile/qt6.sh:"
+	summary "\\`FEATURE_system_jpeg\\` / \\`FEATURE_system_png\\` (no \\`lib\\` prefix)."
+	summary "If this still fires, check the feature dump in the build output."
 fi
 summary ""
 
