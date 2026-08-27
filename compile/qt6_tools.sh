@@ -100,6 +100,17 @@ echo "    extra cmake:   ${EXTRA_CMAKE:-<none>}"
 #       "/usr/lib/llvm-14/lib/libclangBasic.a" but this file does not exist
 #   Disabling qdoc removes the dependency rather than repairing the runner.
 #
+#   >>> FEATURE_qdoc=OFF ALONE IS NOT ENOUGH. <<<  qt_find_package(WrapLibClang)
+#   runs while configure.cmake is being INCLUDED, at the START of feature
+#   evaluation -- FEATURE_qdoc is only consulted AFTER the search has already
+#   happened.  CMAKE_DISABLE_FIND_PACKAGE_* is what actually stops the search:
+#   it makes find_package() return not-found immediately, so the broken
+#   ClangConfig.cmake is never read.
+#
+#   The workflows ALSO delete the broken clang cmake directory before building.
+#   Belt and braces: this flag depends on Qt's qt_find_package honouring the
+#   standard CMake variable, which is not guaranteed across Qt versions.
+#
 # The other FEATURE_* flags trim components we do not ship; lrelease, lupdate
 # and lconvert are the only reason this module is built at all.
 cmake -S . -B build \
@@ -117,6 +128,8 @@ cmake -S . -B build \
 	-DFEATURE_qdoc=OFF \
 	-DFEATURE_clang=OFF \
 	-DFEATURE_clangcpp=OFF \
+	-DCMAKE_DISABLE_FIND_PACKAGE_Clang=ON \
+	-DCMAKE_DISABLE_FIND_PACKAGE_WrapLibClang=ON \
 	$EXTRA_CMAKE
 
 echo "==> building qttools"
