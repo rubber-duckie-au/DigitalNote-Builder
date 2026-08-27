@@ -70,31 +70,6 @@
 #    be ported blind.  macOS is deliberately targets 3-4 in the probe order;
 #    re-derive against Qt6's cocoa plugin when you get there.
 #
-# 8. >>> CORRECTED 2026-08-07: qtbase ALONE IS NOT ENOUGH FOR THE WALLET. <<<
-#    The original version of this script built qtbase only, reasoning that the
-#    wallet's qt_settings.pri asks for core/gui/widgets/network.  That reasoning
-#    was incomplete -- it looked at the QT += modules and missed what the BUILD
-#    itself needs:
-#
-#      a) lrelease.  include/app/qt_settings.pri has `CONFIG += lrelease` and
-#         include/release.pri points QMAKE_LRELEASE at $$[QT_INSTALL_BINS].
-#         lrelease lives in **qttools**, not qtbase.  Without it the wallet
-#         build dies with "lrelease.exe is not recognized".
-#         AND the .qm files it produces are **gitignored** (.gitignore:19 is
-#         `*.qm`) -- they are BUILD ARTIFACTS, not committed files, so a fresh
-#         clone has none and src/qt/bitcoin.qrc cannot resolve its
-#         <file>../../.qm/bitcoin_*.qm</file> entries.  lrelease is REQUIRED.
-#
-#      b) dbus.  This script forced -DFEATURE_dbus=OFF.  Qt5's qt.sh passed NO
-#         dbus flag at all and let configure auto-detect, so the Qt5 wallet
-#         built with USE_DBUS=1 successfully.  Forcing it off made the Qt6
-#         build differ from the Qt5 baseline in a way that broke
-#         `QT += dbus` -- a self-inflicted difference, not a Qt6 limitation.
-#         The flag is now REMOVED so Qt6 auto-detects exactly as Qt5 did.
-#
-#    Principle: when reproducing a build, match what the OLD build actually
-#    DID, not what its config file appears to ask for.
-#
 # 7. macOS BUILDS FRAMEWORKS BY DEFAULT, even for a static build.
 #    Run 5 (macOS Intel) linked static libs INSIDE framework bundles:
 #        [ 38%] Linking CXX static library ../../lib/QtCore.framework/QtCore
@@ -141,7 +116,7 @@ TARBALL="../../../download/qtbase-everywhere-src-${QT_VER}.tar.xz"
 
 if [ ! -f "$TARBALL" ]; then
 	echo "ERROR: $TARBALL not found."
-	echo "       Run ./download.sh from the repository root."
+	echo "       Fetch it with download_qt6.sh (qtbase only, not qt-everywhere)."
 	exit 1
 fi
 
@@ -150,43 +125,7 @@ tar -xf "$TARBALL"
 
 cd "qtbase-everywhere-src-${QT_VER}"
 
-# QT_PREFIX_OVERRIDE lets a caller install somewhere other than the default
-# libs/ directory.  Used by linux/aarch64, which must build a HOST Qt6 into a
-# SEPARATE prefix (libs-host/) before cross-building the target -- keeping them
-# apart is what stops the target build linking host binaries by accident.
-if [ -n "${QT_PREFIX_OVERRIDE:-}" ]; then
-	PREFIX="$QT_PREFIX_OVERRIDE"
-else
-	PREFIX="$PWD/../../libs/qt-${QT_VER}"
-fi
-
-# ---------------------------------------------------------------------------
-# MSYS2 / MinGW: pin the RESOURCE compiler to the MinGW64 toolchain.
-#
-# On a local msys2 build (2026-08-07) CMake resolved the C/C++ compilers
-# correctly to C:/msys64/mingw64/bin/ but picked the RC compiler up from
-# C:/msys64/usr/bin/windres.exe -- that is the MSYS *unix* binutils, not the
-# MinGW64 cross toolchain.  Building Qt's .rc files with it failed:
-#     <command-line>: warning: missing terminating " character
-#     /usr/bin/windres: no resources
-#     FAILED: src/tools/syncqt/.../syncqt_resource.rc.obj
-# because the two windres builds differ in how they handle the quoting in
-# defines like -DQT_NAMESPACE=\"\".
-#
-# CI never hit this: the MINGW64 shell puts /mingw64/bin ahead of /usr/bin, so
-# the right windres won by PATH order.  A local shell with different PATH
-# ordering does not get that for free -- hence pinning it explicitly rather
-# than relying on lookup order.
-#
-# MSYS2 sets MINGW_PREFIX (= /mingw64 in the MINGW64 shell), which is the
-# reliable way to locate the correct toolchain.
-if [ -n "${MINGW_PREFIX:-}" ] && [ -x "${MINGW_PREFIX}/bin/windres.exe" ]; then
-	case "$EXTRA_CMAKE" in
-		*CMAKE_RC_COMPILER*) : ;;   # caller already chose one, respect it
-		*) EXTRA_CMAKE="$EXTRA_CMAKE -DCMAKE_RC_COMPILER=${MINGW_PREFIX}/bin/windres.exe" ;;
-	esac
-	echo "==> pinned RC compiler: ${MINGW_PREFIX}/bin/windres.exe"
-fi
+PREFIX="$PWD/../../libs/qt-${QT_VER}"
 
 echo "==> configuring (static, qtbase only)"
 echo "    prefix:      $PREFIX"
@@ -211,6 +150,7 @@ cmake -S . -B build \
 	-DFEATURE_system_png=OFF \
 	-DFEATURE_system_pcre2=OFF \
 	-DFEATURE_sql=OFF \
+	-DFEATURE_dbus=OFF \
 	-DINPUT_opengl=no \
 	$EXTRA_CMAKE
 

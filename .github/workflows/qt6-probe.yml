@@ -1,0 +1,348 @@
+name: Qt6 Probe (throwaway)
+
+# ============================================================================
+# VERIFICATION EXERCISE. NOT PART OF THE RELEASE FLOW.
+#
+# Answers ONE question: does a static Qt6 qtbase build with our flags, per
+# target?  It does NOT build the wallet -- the wallet cannot compile against
+# Qt6 until ~48 API sites are migrated (QRegExp, QSignalMapper, QTextCodec,
+# endl, SkipEmptyParts, toTime_t, foreach).  Two separable milestones; this
+# is milestone 1, which needs NO wallet changes at all.
+#
+# WHERE THIS FILE MUST LIVE
+#   On the DEFAULT branch (master), or it will not appear in the Actions tab
+#   at all -- workflow_dispatch workflows are only listed if present on the
+#   default branch.  Once there, Run workflow gives a branch dropdown.
+#
+#   That is SAFE.  Release cache keys hash WALLET files only; the release
+#   build invokes ../../compile/qt.sh BY NAME; nothing references qt6.sh; and
+#   this workflow has no push/PR trigger so it cannot self-fire.
+#   >>> What must never land on master is a MODIFICATION to compile/qt.sh,
+#   >>> any compile_libs.sh, or download.sh.  New unreferenced files are
+#   >>> inert. <<<
+#
+# >>> CACHE ISOLATION <<<
+#   The release CI restores from keys like linux-x64-libs-v8-<hash>.  This
+#   workflow WRITES NO CACHE AT ALL, so nothing it produces can be restored
+#   into a release build.  If you ever add caching, namespace it qt6probe-*
+#   and never reuse a release prefix.
+#
+# RESULTS SO FAR
+#   linux-x64    run 2  PASS  ~20 min, all four modules
+#   windows-x64  run 4  PASS  ~21 min, all four modules, ZERO patches --
+#                             the eight forwarding shims in patch/ are retired
+#   macos-x64    run 5  PASS  ~25 min, ZERO patches -- qiosurfacegraphicsbuffer.h
+#                             is retired too.  Built FRAMEWORKS by default;
+#                             now forced to plain .a via -DFEATURE_framework=OFF
+#   macos-arm64  run 6  PASS  zero patches; all pins verified resolved
+#                             (framework OFF, system_jpeg OFF, system_png OFF)
+#   linux-aarch64  -- NOT YET ATTEMPTED.  The only remaining unknown.
+#
+# OPEN ISSUE CARRIED INTO THE REMAINING TARGETS
+#   RESOLVED run 5.  The cache dump revealed the real feature names are
+#   `system_jpeg` and `system_png` -- NO `lib` prefix -- which is why
+#   FEATURE_system_libjpeg was reported unused-cli.  Both are now pinned OFF
+#   in compile/qt6.sh.  probe-report.sh still calls out per target whether
+#   JPEG came from bundled or system, so a regression cannot pass silently.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which target to probe"
+        required: true
+        type: choice
+        options:
+          - linux-x64
+          - windows-x64
+          - macos-x64
+          - macos-arm64
+          - linux-aarch64
+        default: linux-x64
+      qt_version:
+        description: "Qt6 version"
+        required: false
+        type: string
+        default: "6.8.3"
+
+jobs:
+
+  # -- Target 1: Linux x64 -- PASSED run 2 ---------------------------------
+  probe-linux-x64:
+    name: Qt6 probe - Linux x64
+    if: inputs.target == 'linux-x64'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    env:
+      QT_VER: ${{ inputs.qt_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain + Qt6 build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build perl python3 \
+            libfontconfig1-dev libfreetype-dev \
+            libx11-dev libx11-xcb-dev libxcb1-dev libxcb-glx0-dev \
+            libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev \
+            libxcb-randr0-dev libxcb-render-util0-dev libxcb-shape0-dev \
+            libxcb-sync-dev libxcb-util-dev libxcb-xfixes0-dev \
+            libxcb-xinerama0-dev libxcb-xkb-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev
+          echo "cmake: $(cmake --version | head -1)"
+
+      - name: Fetch qtbase
+        run: bash download_qt6.sh
+
+      - name: Build static Qt6
+        working-directory: linux/x64
+        run: |
+          mkdir -p temp libs
+          bash ../../compile/qt6.sh "" "-j$(nproc)"
+
+      - name: Report outcome
+        if: always()
+        run: bash .github/probe-report.sh "Linux x64" "linux/x64/libs/qt-${QT_VER}"
+
+  # -- Target 2: Windows x64 (MSYS2 MinGW64) -- PASSED run 4 ---------------
+  probe-windows-x64:
+    name: Qt6 probe - Windows x64
+    if: inputs.target == 'windows-x64'
+    runs-on: windows-2022
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      QT_VER: ${{ inputs.qt_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 MinGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            base-devel
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-gcc-libs
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pcre2
+            mingw-w64-x86_64-double-conversion
+            mingw-w64-x86_64-zstd
+            mingw-w64-x86_64-libwinpthread
+            mingw-w64-x86_64-md4c
+            perl
+            make
+
+      - name: Fetch qtbase
+        run: bash download_qt6.sh
+
+      # Run 4 built this with ZERO font/platform patches, retiring all eight
+      # forwarding shims in patch/ (they targeted QtFontDatabaseSupport /
+      # QtEventDispatcherSupport / QtWindowsUIAutomationSupport, which Qt6
+      # deleted outright).  Keep it patch-free.
+      - name: Build static Qt6
+        working-directory: windows/x64
+        run: |
+          mkdir -p temp libs
+          bash ../../compile/qt6.sh "-G Ninja" "-j$(nproc)"
+
+      - name: Report outcome
+        if: always()
+        run: bash .github/probe-report.sh "Windows x64" "windows/x64/libs/qt-${QT_VER}"
+
+  # -- Target 3: macOS Intel ------------------------------------------------
+  # NOT YET ATTEMPTED.  This is where patch/qiosurfacegraphicsbuffer.h would
+  # be re-derived IF it is still needed.  Unlike the eight retired shims, that
+  # file is a full MODIFIED UPSTREAM Qt SOURCE, not a one-line forwarder, so
+  # it cannot be ported blind.  Deliberately running WITHOUT it first -- if
+  # cocoa builds clean, it retires like the others did, and we never have to
+  # understand it.
+  probe-macos-x64:
+    name: Qt6 probe - macOS Intel
+    if: inputs.target == 'macos-x64'
+    runs-on: macos-15-intel
+    timeout-minutes: 300
+    env:
+      QT_VER: ${{ inputs.qt_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain + Qt6 build deps
+        run: |
+          brew install cmake ninja perl
+          echo "cmake: $(cmake --version | head -1)"
+          echo "clang: $(clang --version | head -1)"
+
+      - name: Fetch qtbase
+        run: bash download_qt6.sh
+
+      - name: Build static Qt6
+        working-directory: macos/x64
+        run: |
+          mkdir -p temp libs
+          # -DFEATURE_framework=OFF: macOS Qt6 defaults to FRAMEWORKS even for
+          # a static build (run 5 produced lib/QtCore.framework/QtCore, a
+          # static lib with no .a extension).  Qt5's -static implied no
+          # frameworks, so this matches the existing baseline and keeps all
+          # five targets emitting the same libQt6*.a layout.
+          bash ../../compile/qt6.sh "-DFEATURE_framework=OFF" "-j$(sysctl -n hw.ncpu)"
+
+      - name: Report outcome
+        if: always()
+        run: bash .github/probe-report.sh "macOS Intel" "macos/x64/libs/qt-${QT_VER}"
+
+  # -- Target 4: macOS Apple Silicon ---------------------------------------
+  # Qt5 passed QMAKE_APPLE_DEVICE_ARCHS=arm64.  The CMake equivalent is
+  # CMAKE_OSX_ARCHITECTURES.  macos-14 runners are already arm64, so this is
+  # a native build and the flag is belt-and-braces rather than load-bearing.
+  probe-macos-arm64:
+    name: Qt6 probe - macOS Apple Silicon
+    if: inputs.target == 'macos-arm64'
+    runs-on: macos-14
+    timeout-minutes: 300
+    env:
+      QT_VER: ${{ inputs.qt_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain + Qt6 build deps
+        run: |
+          brew install cmake ninja perl
+          echo "cmake: $(cmake --version | head -1)"
+          echo "arch:  $(uname -m)"
+
+      - name: Fetch qtbase
+        run: bash download_qt6.sh
+
+      - name: Build static Qt6
+        working-directory: macos/arm64
+        run: |
+          mkdir -p temp libs
+          bash ../../compile/qt6.sh "-DCMAKE_OSX_ARCHITECTURES=arm64 -DFEATURE_framework=OFF" "-j$(sysctl -n hw.ncpu)"
+
+      - name: Report outcome
+        if: always()
+        run: bash .github/probe-report.sh "macOS Apple Silicon" "macos/arm64/libs/qt-${QT_VER}"
+
+  # -- Target 5: Linux aarch64 (CROSS-COMPILE) -----------------------------
+  # EXPECTED TO BE THE HARD ONE, AND IT MAY WELL FAIL.  That is a legitimate
+  # outcome and the reason it is last.
+  #
+  # Qt5 cross-compiled with a single call:
+  #     -platform linux-g++ -xplatform linux-aarch64-gnu-g++
+  # Qt6 does NOT work that way.  A Qt6 cross-build needs a HOST Qt6 built
+  # FIRST, then the target build points at it via QT_HOST_PATH -- because the
+  # target build must run host tools (moc, rcc, uic) that cannot execute on
+  # the cross target.  That is a structural change, not a flag swap, and it
+  # is why this job builds Qt6 TWICE.  Roughly double the time, hence the
+  # 360-minute ceiling (GitHub's maximum).
+  probe-linux-aarch64:
+    name: Qt6 probe - Linux aarch64 (cross)
+    if: inputs.target == 'linux-aarch64'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      QT_VER: ${{ inputs.qt_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cross toolchain + multiarch deps
+        run: |
+          sudo dpkg --add-architecture arm64
+
+          # arm64 packages are NOT on the primary mirrors -- ports.ubuntu.com
+          # serves them.  EVERY existing source must therefore be restricted to
+          # amd64 first, or apt-get update tries to fetch arm64 indexes from
+          # mirrors that do not carry them and dies with 404s.
+          #
+          # RUN 7 FAILED HERE.  The original version sed'd only
+          # /etc/apt/sources.list, but this runner also carries entries
+          # elsewhere, and those stayed unrestricted -- producing four 404s
+          # against https://security.ubuntu.com/.../binary-arm64/Packages.
+          # Handle BOTH file locations AND both formats (one-line and deb822),
+          # and print before/after so a future failure is self-diagnosing
+          # rather than another blind round trip.
+          echo "--- apt sources BEFORE ---"
+          sudo grep -rhE '^(deb|Types:|URIs:|Architectures:)'             /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | sed 's/^/  /' || true
+
+          # one-line format: /etc/apt/sources.list and *.list
+          sudo sed -i -E 's|^deb (\[[^]]*\] *)?|deb [arch=amd64] |' /etc/apt/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] || continue
+            sudo sed -i -E 's|^deb (\[[^]]*\] *)?|deb [arch=amd64] |' "$f"
+          done
+
+          # deb822 format: *.sources needs an Architectures: line instead
+          for f in /etc/apt/sources.list.d/*.sources; do
+            [ -f "$f" ] || continue
+            if ! sudo grep -q '^Architectures:' "$f"; then
+              sudo sed -i '/^Types:/a Architectures: amd64' "$f"
+            fi
+          done
+
+          # now add the arm64-only ports source
+          cat <<'EOF' | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+          EOF
+
+          echo "--- apt sources AFTER ---"
+          sudo grep -rhE '^(deb|Types:|URIs:|Architectures:)'             /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | sed 's/^/  /' || true
+
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build perl python3 \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            libfontconfig1-dev:arm64 libfreetype-dev:arm64 \
+            libx11-dev:arm64 libx11-xcb-dev:arm64 libxcb1-dev:arm64 \
+            libxcb-icccm4-dev:arm64 libxcb-image0-dev:arm64 \
+            libxcb-keysyms1-dev:arm64 libxcb-randr0-dev:arm64 \
+            libxcb-render-util0-dev:arm64 libxcb-shape0-dev:arm64 \
+            libxcb-sync-dev:arm64 libxcb-util-dev:arm64 \
+            libxcb-xfixes0-dev:arm64 libxcb-xinerama0-dev:arm64 \
+            libxcb-xkb-dev:arm64 libxkbcommon-dev:arm64 \
+            libxkbcommon-x11-dev:arm64
+          echo "cross gcc: $(aarch64-linux-gnu-gcc --version | head -1)"
+
+      - name: Fetch qtbase
+        run: bash download_qt6.sh
+
+      # STAGE 1 of 2: host x86_64 Qt6, needed only for its tools.
+      - name: Build HOST Qt6 (stage 1 of 2)
+        working-directory: linux/aarch64
+        run: |
+          mkdir -p temp-host libs-host
+          cd temp-host
+          tar -xf ../../../download/qtbase-everywhere-src-${QT_VER}.tar.xz
+          cd qtbase-everywhere-src-${QT_VER}
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/../../libs-host/qt-${QT_VER}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF \
+            -DINPUT_opengl=no
+          cmake --build build -j$(nproc)
+          cmake --install build
+          echo "host Qt6 tools installed"
+
+      # STAGE 2 of 2: the actual arm64 cross-build, pointed at stage 1.
+      - name: Build TARGET aarch64 Qt6 (stage 2 of 2)
+        working-directory: linux/aarch64
+        run: |
+          mkdir -p temp libs
+          HOST_PATH="$PWD/libs-host/qt-${QT_VER}"
+          bash ../../compile/qt6.sh \
+            "-DQT_HOST_PATH=$HOST_PATH -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY" \
+            "-j$(nproc)"
+
+      - name: Report outcome
+        if: always()
+        run: bash .github/probe-report.sh "Linux aarch64 (cross)" "linux/aarch64/libs/qt-${QT_VER}"
