@@ -8,7 +8,7 @@
 #   ./compile_libs.sh                  # serial build
 #   ./compile_libs.sh "-j 8"           # parallel with 8 jobs
 #
-# $1 is forwarded to each compile script as the make-args (-j N).
+# $JOBS_FLAG is forwarded to each compile script as the make-args (-j N).
 #
 # Toolchain expectations (set up by update.sh):
 #   * gcc-aarch64-linux-gnu / g++-aarch64-linux-gnu installed
@@ -17,6 +17,18 @@
 
 mkdir -p temp
 mkdir -p libs
+
+# v2.0.0.9: default the job count instead of building serially.
+#
+# $JOBS_FLAG was forwarded straight through with NO default, so calling
+# ./compile_libs.sh with no argument built everything single-threaded.
+# compile_daemon.sh and compile_app.sh have auto-detected for a while; this
+# brings compile_libs.sh in line, using the identical idiom.
+#
+# nproc on Linux, sysctl on macOS, fallback 2.  An explicit argument still
+# wins, so existing callers passing "-j 4" are unaffected.
+JOBS_FLAG="${1:--j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}"
+
 mkdir -p config
 
 export CC=aarch64-linux-gnu-gcc
@@ -24,18 +36,18 @@ export CXX=aarch64-linux-gnu-g++
 
 echo 'using gcc : aarch64 : aarch64-linux-gnu-g++ ;' > config/user-config.jam
 
-../../compile/berkeleydb.sh "build_unix" "--host aarch64-linux-gnu" $1
-../../compile/boost.sh "--user-config=../../config/user-config.jam toolset=gcc-aarch64 architecture=arm address-model=64 target-os=linux $1"
-../../compile/leveldb.sh $1
-../../compile/libevent.sh "--host aarch64-linux-gnu" $1
-../../compile/miniupnpc.sh "libminiupnpc.a" $1
-../../compile/openssl.sh "linux-aarch64" $1
-../../compile/qrencode.sh "--host aarch64-linux-gnu" $1
-../../compile/secp256k1.sh "--host aarch64-linux-gnu" $1
+../../compile/berkeleydb.sh "build_unix" "--host aarch64-linux-gnu" $JOBS_FLAG
+../../compile/boost.sh "--user-config=../../config/user-config.jam toolset=gcc-aarch64 architecture=arm address-model=64 target-os=linux $JOBS_FLAG"
+../../compile/leveldb.sh $JOBS_FLAG
+../../compile/libevent.sh "--host aarch64-linux-gnu" $JOBS_FLAG
+../../compile/miniupnpc.sh "libminiupnpc.a" $JOBS_FLAG
+../../compile/openssl.sh "linux-aarch64" $JOBS_FLAG
+../../compile/qrencode.sh "--host aarch64-linux-gnu" $JOBS_FLAG
+../../compile/secp256k1.sh "--host aarch64-linux-gnu" $JOBS_FLAG
 # GMP cross-compiled. --disable-assembly avoids gmp's hand-tuned aarch64
 # asm needing a newer host as/ld than ubuntu-22.04 ships. Slight perf
 # hit, but produces a clean static .a we can link.
-../../compile/gmp.sh "--host=aarch64-linux-gnu --disable-assembly" $1
+../../compile/gmp.sh "--host=aarch64-linux-gnu --disable-assembly" $JOBS_FLAG
 # ---------------------------------------------------------------------------
 # Qt6 CROSS-COMPILE.  Structurally different from every other platform.
 #
@@ -56,13 +68,13 @@ echo 'using gcc : aarch64 : aarch64-linux-gnu-g++ ;' > config/user-config.jam
 # target build.  qt6.sh honours QT_PREFIX_OVERRIDE.
 QT_HOST_PREFIX="$PWD/libs-host/qt-6.8.3"
 
-QT_PREFIX_OVERRIDE="$QT_HOST_PREFIX" ../../compile/qt6.sh "" $1
-QT_PREFIX_OVERRIDE="$QT_HOST_PREFIX" ../../compile/qt6_tools.sh "" $1
+QT_PREFIX_OVERRIDE="$QT_HOST_PREFIX" ../../compile/qt6.sh "" $JOBS_FLAG
+QT_PREFIX_OVERRIDE="$QT_HOST_PREFIX" ../../compile/qt6_tools.sh "" $JOBS_FLAG
 
 # -- STAGE 2 of 2: the aarch64 TARGET build, against stage 1 ----------------
 PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
 PKG_CONFIG_SYSROOT_DIR=/ \
-../../compile/qt6.sh "-DQT_HOST_PATH=$QT_HOST_PREFIX -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY" $1
+../../compile/qt6.sh "-DQT_HOST_PATH=$QT_HOST_PREFIX -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY" $JOBS_FLAG
 
 # NOTE: lrelease must come from the HOST build (stage 1) -- a cross-built
 # lrelease cannot run on the build machine.  compile_app.sh puts the HOST

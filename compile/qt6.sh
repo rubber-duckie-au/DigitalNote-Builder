@@ -198,6 +198,29 @@ echo "    extra cmake: ${EXTRA_CMAKE:-<none>}"
 # Kept identical to the Qt5 build's intent so this probe isolates the
 # TOOLCHAIN change rather than mixing in a dependency-sourcing change.
 # shellcheck disable=SC2086
+# v2.0.0.9: ALWAYS configure into a CLEAN build directory.
+#
+# `cmake -S . -B build` REUSES an existing build/ and its CMakeCache.txt.  That
+# broke the aarch64 cross-build: stage 1 configures qtbase for the HOST, stage 2
+# reconfigures the SAME source tree for the target, and CMake reported
+#
+#     You have changed variables that require your cache to be deleted.
+#     Configure will be re-run and you may have to reset some variables.
+#     CMAKE_CXX_COMPILER= aarch64-linux-gnu-g++
+#
+# then re-ran with a half-cleared cache in which OpenGL had already been probed
+# under HOST assumptions -- surfacing as
+#     ERROR: The OpenGL functionality tests failed!
+#
+# CMake's own recovery is not sufficient here: feature results resolved during
+# the first pass survive into the second.  Removing build/ makes each configure
+# independent, which is the only way two different toolchains can share one
+# extracted source tree.
+#
+# Cost is a full reconfigure each run; correctness is worth more than the
+# seconds saved, and the compile itself is unaffected.
+rm -rf build
+
 cmake -S . -B build \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_INSTALL_PREFIX="$PREFIX" \

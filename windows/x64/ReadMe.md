@@ -31,7 +31,11 @@ Now we have all the libraries we need for the Digitalnote project.
 
 Now that we have everything, we can compile the libraries.
 
-	./compile_libs.sh "-j 4"
+	./compile_libs.sh
+
+The job count is optional. With no argument `compile_libs.sh` auto-detects
+(`nproc` / `sysctl`, fallback 2), matching `compile_daemon.sh` and
+`compile_app.sh`. Pass `"-j N"` to override, e.g. `./compile_libs.sh "-j 4"`.
 
 This will take a while to compile; take a coffee while this runs.
 
