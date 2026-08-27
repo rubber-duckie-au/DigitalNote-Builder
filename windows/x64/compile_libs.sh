@@ -15,4 +15,5 @@ bash gmp.sh
 ../../compile/openssl.sh "mingw64" $1
 ../../compile/qrencode.sh "" $1
 ../../compile/secp256k1.sh "" $1
-../../compile/qt.sh "-platform win32-g++" $1
+../../compile/qt6.sh "-G Ninja" $1
+../../compile/qt6_tools.sh "-G Ninja" $1
