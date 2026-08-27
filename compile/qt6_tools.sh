@@ -87,6 +87,21 @@ echo "    extra cmake:   ${EXTRA_CMAKE:-<none>}"
 # dependencies (qtdeclarative for some) and are not used by the wallet build,
 # so they are turned off.  If a future need appears, drop the relevant -D.
 # shellcheck disable=SC2086
+# NOTE: no comments inside the argument list below -- a '#' line between
+# backslash continuations TRUNCATES the command and the remaining flags become
+# stray commands.  bash -n does not catch it.
+#
+# FEATURE_qdoc=OFF / clang / clangcpp:
+#   qdoc is the only qttools component that needs libclang, and we never build
+#   documentation.  With it enabled, configure calls find_package(Clang), which
+#   on the GitHub Ubuntu runners resolves a BROKEN clang-14 -- ClangConfig.cmake
+#   is installed but the static libs it references are not -- and CMake aborts:
+#       The imported target "clangBasic" references the file
+#       "/usr/lib/llvm-14/lib/libclangBasic.a" but this file does not exist
+#   Disabling qdoc removes the dependency rather than repairing the runner.
+#
+# The other FEATURE_* flags trim components we do not ship; lrelease, lupdate
+# and lconvert are the only reason this module is built at all.
 cmake -S . -B build \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_PREFIX_PATH="$PREFIX" \
@@ -99,6 +114,9 @@ cmake -S . -B build \
 	-DFEATURE_qtattributionsscanner=OFF \
 	-DFEATURE_qtdiag=OFF \
 	-DFEATURE_qtplugininfo=OFF \
+	-DFEATURE_qdoc=OFF \
+	-DFEATURE_clang=OFF \
+	-DFEATURE_clangcpp=OFF \
 	$EXTRA_CMAKE
 
 echo "==> building qttools"
