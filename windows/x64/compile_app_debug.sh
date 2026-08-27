@@ -3,7 +3,7 @@
 # NOTE: for full symbols release modify \DigitalNote-2\include\compiler_settings.pri,
 # Comment out "QMAKE_CXXFLAGS =" - change to "## QMAKE_CXXFLAGS =" 
 
-export PATH="$PWD/libs/qt-5.15.7/bin:$PATH"
+export PATH="$PWD/libs/qt-6.8.3/bin:$PATH"
 
 cd DigitalNote-2
 
