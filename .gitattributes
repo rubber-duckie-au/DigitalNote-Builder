@@ -1,0 +1,38 @@
+# Line endings.
+#
+# The repository has always stored LF (confirmed: `git ls-files --eol` reports
+# `i/lf`).  What varies is the WORKING TREE: with core.autocrlf=true a Windows
+# checkout gets CRLF, and that is a per-machine setting no one else inherits.
+# This file makes the intent explicit and independent of local git config.
+#
+# WHY eol=lf MATTERS HERE, and it is not cosmetic.
+# These scripts are executed by bash (msys2 on Windows, native elsewhere).
+# Bash tolerates a stray CR on a simple command line but REJECTS it inside a
+# compound statement -- if/for/while/case.  A CRLF working tree therefore
+# breaks any script containing a loop or conditional, while leaving
+# straight-line scripts working.  That is why the failure looks random.
+#
+# Observed 2026-08-25 on a Windows checkout: linux/aarch64/update.sh,
+# compile/mnemonic.sh, windows/x64/gmp.sh and windows/x64/compile_app_debug.sh
+# all fail `bash -n` purely from CR, and the Qt6 scripts did too until fixed.
+#
+# eol=lf overrides core.autocrlf per pattern, so the Windows working tree gets
+# LF for these files and bash never sees a CR.  Modern Windows editors
+# (VS Code, Notepad++, and Notepad since Win10 1809) all handle LF fine.
+
+# Default: normalise text to LF in the repo, LF in the working tree.
+* text=auto eol=lf
+
+# Explicit for the file types that break, so intent survives any future edit
+# to the default line above.
+*.sh    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.h     text eol=lf
+
+# Archives and images must never be touched.
+*.tar.gz binary
+*.tar.xz binary
+*.zip    binary
+*.png    binary
+*.jpg    binary

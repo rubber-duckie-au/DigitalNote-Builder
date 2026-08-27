@@ -43,11 +43,17 @@ TARBALL="../../../download/qttools-everywhere-src-${QT_VER}.tar.xz"
 
 if [ ! -f "$TARBALL" ]; then
 	echo "ERROR: $TARBALL not found."
-	echo "       Run download_qt6.sh (it fetches qtbase AND qttools)."
+	echo "       Run ./download.sh from the repository root (it fetches qtbase AND qttools)."
 	exit 1
 fi
 
-PREFIX="$PWD/../libs/qt-${QT_VER}"
+# See qt6.sh for QT_PREFIX_OVERRIDE.  qttools MUST install alongside the qtbase
+# it was configured against, so both scripts have to honour the same override.
+if [ -n "${QT_PREFIX_OVERRIDE:-}" ]; then
+	PREFIX="$QT_PREFIX_OVERRIDE"
+else
+	PREFIX="$PWD/../libs/qt-${QT_VER}"
+fi
 
 if [ ! -x "$PREFIX/bin/qmake" ] && [ ! -x "$PREFIX/bin/qmake.exe" ]; then
 	echo "ERROR: no qtbase install found at $PREFIX"

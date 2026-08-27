@@ -36,8 +36,34 @@ echo 'using gcc : aarch64 : aarch64-linux-gnu-g++ ;' > config/user-config.jam
 # asm needing a newer host as/ld than ubuntu-22.04 ships. Slight perf
 # hit, but produces a clean static .a we can link.
 ../../compile/gmp.sh "--host=aarch64-linux-gnu --disable-assembly" $1
-# Qt: PKG_CONFIG_LIBDIR points at arm64 multiarch paths so configure
-# tests succeed against the foreign-arch libs installed via apt :arm64.
+# ---------------------------------------------------------------------------
+# Qt6 CROSS-COMPILE.  Structurally different from every other platform.
+#
+# Qt5 cross-compiled in ONE call: -platform linux-g++ -xplatform
+# linux-aarch64-gnu-g++.  Qt6 CANNOT do that.  The target build has to RUN host
+# tools (moc, rcc, uic) which cannot execute on aarch64, so a HOST Qt6 must be
+# built FIRST and the target build pointed at it via QT_HOST_PATH.
+#
+# Hence TWO builds below, and roughly double the wall time.  That is why
+# aarch64 was left until last in the migration.
+#
+# PKG_CONFIG_LIBDIR still points at arm64 multiarch paths so the TARGET build's
+# feature tests resolve against the foreign-arch libs installed via apt :arm64.
+# ---------------------------------------------------------------------------
+
+# -- STAGE 1 of 2: HOST x86_64 Qt6, built only for its tools ----------------
+# Separate prefix so it can never be mistaken for, or linked against by, the
+# target build.  qt6.sh honours QT_PREFIX_OVERRIDE.
+QT_HOST_PREFIX="$PWD/libs-host/qt-6.8.3"
+
+QT_PREFIX_OVERRIDE="$QT_HOST_PREFIX" ../../compile/qt6.sh "" $1
+QT_PREFIX_OVERRIDE="$QT_HOST_PREFIX" ../../compile/qt6_tools.sh "" $1
+
+# -- STAGE 2 of 2: the aarch64 TARGET build, against stage 1 ----------------
 PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
 PKG_CONFIG_SYSROOT_DIR=/ \
-../../compile/qt.sh "-platform linux-g++ -xplatform linux-aarch64-gnu-g++ -bundled-xcb-xinput -fontconfig -system-freetype" ""
+../../compile/qt6.sh "-DQT_HOST_PATH=$QT_HOST_PREFIX -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY" $1
+
+# NOTE: lrelease must come from the HOST build (stage 1) -- a cross-built
+# lrelease cannot run on the build machine.  compile_app.sh puts the HOST
+# prefix on PATH for exactly this reason.

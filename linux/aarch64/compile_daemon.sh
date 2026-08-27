@@ -1,6 +1,16 @@
 #! /usr/bin/env bash
 
-export PATH="$PWD/libs/qt-5.15.7/bin:$PATH"
+# v2.0.0.9 Qt6 cross-build: TWO prefixes exist here.
+#
+#   libs-host/qt-6.8.3  -- x86_64 HOST build.  Its lrelease/moc/rcc/uic RUN on
+#                          this machine.  qmake must come from here too.
+#   libs/qt-6.8.3       -- aarch64 TARGET build.  Its binaries CANNOT execute
+#                          on the build host; only its libraries and headers
+#                          are consumed, via the toolchain settings.
+#
+# Putting the TARGET bin/ on PATH would produce "cannot execute binary file"
+# from lrelease.  Host first, deliberately.
+export PATH="$PWD/libs-host/qt-6.8.3/bin:$PATH"
 
 cd DigitalNote-2
 

@@ -32,4 +32,15 @@ bash ../../compile/openssl.sh    "darwin64-x86_64-cc" $1
 bash ../../compile/qrencode.sh   "" $1
 bash ../../compile/secp256k1.sh  "" $1
 bash ../../compile/gmp.sh        "--with-pic" $1
-bash ../../compile/qt.sh         "" $1
+# v2.0.0.9: migrated to Qt6.
+#
+# -DFEATURE_framework=OFF: macOS Qt6 builds FRAMEWORKS by default even for a
+# static build (lib/QtCore.framework/QtCore -- a static lib with no .a suffix).
+# Qt5's -static implied no frameworks, so this keeps the output layout matching
+# the other platforms and the existing .pri expectations.
+#
+# patch/qiosurfacegraphicsbuffer.h is deliberately NOT applied: the Qt6 cocoa
+# plugin built clean without it in probe run 5.  If a cocoa build ever fails
+# here, re-derive that patch against Qt6 rather than restoring the Qt5 copy.
+bash ../../compile/qt6.sh         "-DFEATURE_framework=OFF" $1
+bash ../../compile/qt6_tools.sh   "-DFEATURE_framework=OFF" $1

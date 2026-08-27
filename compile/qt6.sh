@@ -141,7 +141,7 @@ TARBALL="../../../download/qtbase-everywhere-src-${QT_VER}.tar.xz"
 
 if [ ! -f "$TARBALL" ]; then
 	echo "ERROR: $TARBALL not found."
-	echo "       Fetch it with download_qt6.sh (qtbase only, not qt-everywhere)."
+	echo "       Run ./download.sh from the repository root."
 	exit 1
 fi
 
@@ -150,7 +150,15 @@ tar -xf "$TARBALL"
 
 cd "qtbase-everywhere-src-${QT_VER}"
 
-PREFIX="$PWD/../../libs/qt-${QT_VER}"
+# QT_PREFIX_OVERRIDE lets a caller install somewhere other than the default
+# libs/ directory.  Used by linux/aarch64, which must build a HOST Qt6 into a
+# SEPARATE prefix (libs-host/) before cross-building the target -- keeping them
+# apart is what stops the target build linking host binaries by accident.
+if [ -n "${QT_PREFIX_OVERRIDE:-}" ]; then
+	PREFIX="$QT_PREFIX_OVERRIDE"
+else
+	PREFIX="$PWD/../../libs/qt-${QT_VER}"
+fi
 
 # ---------------------------------------------------------------------------
 # MSYS2 / MinGW: pin the RESOURCE compiler to the MinGW64 toolchain.
