@@ -114,18 +114,22 @@ echo "    extra cmake:   ${EXTRA_CMAKE:-<none>}"
 # The other FEATURE_* flags trim components we do not ship; lrelease, lupdate
 # and lconvert are the only reason this module is built at all.
 #
-# FEATURE_linguist=OFF is NOT the translation tools -- it is the Qt Linguist
-# GUI APPLICATION.  lrelease/lupdate/lconvert are command-line tools and are
-# built regardless; only the GUI is dropped.
+# >>> DO NOT ADD -DFEATURE_linguist=OFF. <<<
 #
-#   Why it matters beyond build time: the GUI links Qt Widgets, which pulls in
-#   xkbcommon.  On the aarch64 job, `dpkg --add-architecture arm64` puts
-#   /usr/lib/aarch64-linux-gnu/libxkbcommon.so on the system, and the HOST
-#   x86_64 link grabbed it:
-#       /usr/bin/ld: /usr/lib/aarch64-linux-gnu/libxkbcommon.so:
-#                    error adding symbols: file in wrong format
-#   Dropping the GUI removes the Widgets dependency entirely, so there is no
-#   foreign-arch library for the linker to pick up in the first place.
+# Tried 2026-08-27 and it was WRONG.  In Qt6 that feature gates the ENTIRE
+# linguist module -- lrelease, lupdate and lconvert included, not just the Qt
+# Linguist GUI.  The build succeeded and produced none of the three tools:
+#     lrelease     MISSING
+#     lupdate      MISSING
+#     lconvert     MISSING
+# There is no separate flag for the GUI alone.
+#
+# The problem it was meant to solve -- the aarch64 job's HOST build linking
+# /usr/lib/aarch64-linux-gnu/libxkbcommon.so, "file in wrong format" -- was
+# never a qttools problem.  That job installed the arm64 cross toolchain but
+# NOT the host-arch GUI dev packages, so the only libxkbcommon on the system
+# was the wrong architecture.  Fixed in ci-linux-aarch64.yml by installing the
+# same host-arch dev packages ci-linux-x64.yml already had.
 #
 # pixeltool and distancefieldgenerator are GUI tools too, disabled for the same
 # reason.
@@ -138,7 +142,6 @@ cmake -S . -B build \
 	-DQT_BUILD_TESTS=OFF \
 	-DFEATURE_designer=OFF \
 	-DFEATURE_assistant=OFF \
-	-DFEATURE_linguist=OFF \
 	-DFEATURE_pixeltool=OFF \
 	-DFEATURE_distancefieldgenerator=OFF \
 	-DFEATURE_qtattributionsscanner=OFF \
