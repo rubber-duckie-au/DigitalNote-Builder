@@ -113,6 +113,22 @@ echo "    extra cmake:   ${EXTRA_CMAKE:-<none>}"
 #
 # The other FEATURE_* flags trim components we do not ship; lrelease, lupdate
 # and lconvert are the only reason this module is built at all.
+#
+# FEATURE_linguist=OFF is NOT the translation tools -- it is the Qt Linguist
+# GUI APPLICATION.  lrelease/lupdate/lconvert are command-line tools and are
+# built regardless; only the GUI is dropped.
+#
+#   Why it matters beyond build time: the GUI links Qt Widgets, which pulls in
+#   xkbcommon.  On the aarch64 job, `dpkg --add-architecture arm64` puts
+#   /usr/lib/aarch64-linux-gnu/libxkbcommon.so on the system, and the HOST
+#   x86_64 link grabbed it:
+#       /usr/bin/ld: /usr/lib/aarch64-linux-gnu/libxkbcommon.so:
+#                    error adding symbols: file in wrong format
+#   Dropping the GUI removes the Widgets dependency entirely, so there is no
+#   foreign-arch library for the linker to pick up in the first place.
+#
+# pixeltool and distancefieldgenerator are GUI tools too, disabled for the same
+# reason.
 cmake -S . -B build \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_PREFIX_PATH="$PREFIX" \
@@ -122,6 +138,9 @@ cmake -S . -B build \
 	-DQT_BUILD_TESTS=OFF \
 	-DFEATURE_designer=OFF \
 	-DFEATURE_assistant=OFF \
+	-DFEATURE_linguist=OFF \
+	-DFEATURE_pixeltool=OFF \
+	-DFEATURE_distancefieldgenerator=OFF \
 	-DFEATURE_qtattributionsscanner=OFF \
 	-DFEATURE_qtdiag=OFF \
 	-DFEATURE_qtplugininfo=OFF \
@@ -143,11 +162,34 @@ echo
 echo "==> qttools ${QT_VER} COMPLETE"
 echo
 echo "==> translation tools (the reason this module is built)"
+# This check is FATAL, deliberately.
+#
+# It previously only PRINTED "MISSING" and let the script succeed, so a qttools
+# build that produced no lrelease would be cached as good and the failure would
+# surface much later -- during the wallet build, as an unresolved .qm reference
+# that points nowhere near the real cause.
+#
+# It also guards the FEATURE_* trimming above: if a future flag change removes
+# a tool we actually need, this stops immediately instead of poisoning a cache.
+missing=""
+
 for t in lrelease lupdate lconvert; do
 	if [ -x "$PREFIX/bin/${t}" ] || [ -x "$PREFIX/bin/${t}.exe" ]; then
 		printf '    %-12s OK\n' "$t"
 	else
-		printf '    %-12s MISSING  <-- the wallet build will fail without lrelease\n' "$t"
+		printf '    %-12s MISSING\n' "$t"
+		missing="$missing $t"
 	fi
 done
+
+if [ -n "$missing" ]; then
+	echo
+	echo "ERROR: qttools built but these tools are absent:$missing"
+	echo "       The wallet build needs lrelease to generate .qm files from"
+	echo "       src/qt/locale/*.ts.  Those .qm files are gitignored build"
+	echo "       artifacts, so a fresh clone cannot resolve bitcoin.qrc without"
+	echo "       them.  Check the FEATURE_* flags in this script."
+	echo
+	exit 1
+fi
 echo
