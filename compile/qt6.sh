@@ -233,6 +233,7 @@ cmake -S . -B build \
 	-DFEATURE_system_jpeg=OFF \
 	-DFEATURE_system_png=OFF \
 	-DFEATURE_system_pcre2=OFF \
+	-DFEATURE_system_libmd4c=OFF \
 	-DFEATURE_sql=OFF \
 	-DINPUT_opengl=no \
 	$EXTRA_CMAKE
